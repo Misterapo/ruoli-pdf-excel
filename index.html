@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ruoli PDF -> Excel</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div>
+        <p class="eyebrow">Riversamenti Agenzia Entrate-Riscossione</p>
+        <h1>Ruoli PDF -> Excel</h1>
+        <p class="intro">Lettura locale dei PDF e generazione Excel per riversamenti Agenzia Entrate-Riscossione.</p>
+      </div>
+      <p class="privacy-notice">Il PDF viene elaborato localmente nel browser. Nessun file viene caricato su server esterni.</p>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel" aria-labelledby="settings-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="settings-title">Configurazione archivio</h2>
+          <p>Dati usati solo per etichettare l'archivio locale di questo browser.</p>
+        </div>
+        <button id="saveSettingsButton" type="button" class="secondary-button">Salva configurazione</button>
+      </div>
+      <div class="form-grid">
+        <label>
+          Comune / Ente
+          <input id="enteInput" type="text" autocomplete="organization" placeholder="Es. Comune">
+        </label>
+        <label>
+          Anno gestione
+          <input id="annoInput" type="number" min="2000" max="2100" placeholder="2026">
+        </label>
+        <label>
+          Operatore
+          <input id="operatoreInput" type="text" autocomplete="name" placeholder="Nome operatore">
+        </label>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="upload-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="upload-title">Caricamento PDF</h2>
+          <p>Puoi selezionare uno o più PDF. I dati estratti saranno salvati nell'archivio locale.</p>
+        </div>
+        <div class="actions">
+          <label class="file-picker">
+            <input id="pdfInput" type="file" accept="application/pdf" multiple>
+            <span>Scegli PDF</span>
+          </label>
+          <button id="analyzeButton" type="button" disabled>Analizza PDF</button>
+        </div>
+      </div>
+      <div id="status" class="status" role="status">Nessun PDF selezionato.</div>
+      <details class="raw-box">
+        <summary>Testo grezzo dell'ultima elaborazione</summary>
+        <textarea id="rawText" readonly placeholder="Qui comparira il testo estratto dall'ultimo PDF analizzato."></textarea>
+      </details>
+    </section>
+
+    <section class="panel" aria-labelledby="archive-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="archive-title">Archivio locale</h2>
+          <p>Seleziona i PDF da includere nelle anteprime e nell'export.</p>
+        </div>
+        <div class="actions">
+          <button id="exportArchiveButton" type="button" class="secondary-button">Esporta JSON</button>
+          <label class="file-picker secondary-picker">
+            <input id="importArchiveInput" type="file" accept="application/json">
+            <span>Importa JSON</span>
+          </label>
+          <button id="clearArchiveButton" type="button" class="danger-button">Svuota archivio</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="archiveTable">
+          <thead>
+            <tr>
+              <th>Includi</th>
+              <th>Nome file</th>
+              <th>Data riversamento</th>
+              <th>Prospetti</th>
+              <th>Righe</th>
+              <th>Totale riversato</th>
+              <th>Stato</th>
+              <th>Azione</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="archiveHelp" class="table-help">Archivio vuoto.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="prospetti-title">
+      <h2 id="prospetti-title">Prospetti per ruolo trovati</h2>
+      <div class="table-wrap">
+        <table id="prospettiTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="imu-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="imu-title">Anteprima IMU - RIFIUTI</h2>
+          <p>Aggregata per prospetto, contribuente, cartella e anno riferimento.</p>
+        </div>
+        <button id="copyImuButton" type="button" disabled>Copia tabella IMU - RIFIUTI</button>
+      </div>
+      <div class="table-wrap">
+        <table id="imuTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="multe-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="multe-title">Anteprima MULTE</h2>
+          <p>Aggregata sulle voci dedicate alle sanzioni del codice della strada.</p>
+        </div>
+        <button id="copyMulteButton" type="button" disabled>Copia tabella MULTE</button>
+      </div>
+      <div class="table-wrap">
+        <table id="multeTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="reversali-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="reversali-title">Riepilogo reversali</h2>
+          <p>Somme per voce, capitolo e accertamento, calcolate dalle colonne contabili.</p>
+        </div>
+        <button id="copyReversaliButton" type="button" disabled>Copia riepilogo reversali</button>
+      </div>
+      <div class="table-wrap">
+        <table id="reversaliTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel controls-panel" aria-labelledby="controls-title">
+      <div>
+        <h2 id="controls-title">Controlli</h2>
+        <div id="controlsSummary" class="checks-grid"></div>
+      </div>
+      <div class="export-box">
+        <button id="downloadButton" type="button" disabled>Scarica Excel completo</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="config.js"></script>
+  <script src="parser.js"></script>
+  <script src="mapper.js"></script>
+  <script src="storage.js"></script>
+  <script src="excel.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
