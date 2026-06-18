@@ -1,0 +1,6 @@
+# File da non caricare nella repository
+*.pdf
+*.xlsx
+*.xls
+*.json
+archivio*
