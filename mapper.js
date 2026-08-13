@@ -141,7 +141,7 @@ function buildProspettiRows(rows) {
   return [...grouped.values()];
 }
 
-const ANNUAL_COLUMNS = ["Numero sospeso", "Data riversamento", "Anno riferimento", "ACQUA", "IMU", "TARI", "IRPEF", "ALTRI", "TOTALE", "Codici inclusi", "Note"];
+const ANNUAL_COLUMNS = ["Numero sospeso", "Data riversamento", "Anno riferimento", "ACQUA", "IMU", "TARI", "IRPEF", "TOTALE", "Codici inclusi", "Note"];
 const ANNUAL_GROUPS = {
   ACQUA: new Set(["9000", "9170", "9175"].map(normalizeArticleCode)),
   IMU: new Set(["2R60"].map(normalizeArticleCode)),
@@ -156,16 +156,16 @@ function buildAnnualSummary(records) {
     const number = match.numero_sospeso || "";
     for (const movement of record.rows || []) {
       const year = String(movement.anno_riferimento || "").trim();
-      if (!year) continue;
+      const group = annualGroupForCode(movement.articolo_normalizzato || movement.articolo);
+      if (!year || !group) continue;
       const key = `${number}||${year}`;
       if (!grouped.has(key)) grouped.set(key, {
         "Numero sospeso": number, "Data riversamento": record.data_riversamento || "", "Anno riferimento": year,
-        ACQUA: 0, IMU: 0, TARI: 0, IRPEF: 0, ALTRI: 0, TOTALE: 0, "Codici inclusi": "", Note: ""
+        ACQUA: 0, IMU: 0, TARI: 0, IRPEF: 0, TOTALE: 0, "Codici inclusi": "", Note: ""
       });
       const target = grouped.get(key);
       const code = normalizeArticleCode(movement.articolo_normalizzato || movement.articolo);
       const cents = RuoliSuspesi.amountToCents(movement.riversato) || 0;
-      const group = Object.keys(ANNUAL_GROUPS).find((name) => ANNUAL_GROUPS[name].has(code)) || "ALTRI";
       target[group] += cents;
       target.TOTALE += cents;
       target._codes = target._codes || new Set();
@@ -175,10 +175,20 @@ function buildAnnualSummary(records) {
   return [...grouped.values()].map((row) => {
     row["Codici inclusi"] = [...(row._codes || [])].sort().join(" + ");
     delete row._codes;
-    for (const column of ["ACQUA", "IMU", "TARI", "IRPEF", "ALTRI", "TOTALE"]) row[column] /= 100;
+    for (const column of ["ACQUA", "IMU", "TARI", "IRPEF", "TOTALE"]) row[column] /= 100;
     return row;
-  }).sort((a, b) => Number(a["Anno riferimento"]) - Number(b["Anno riferimento"])
-    || String(a["Numero sospeso"]).localeCompare(String(b["Numero sospeso"]), "it", { numeric: true }));
+  }).sort(compareAnnualRows);
+}
+
+function annualGroupForCode(articleCode) {
+  const code = normalizeArticleCode(articleCode);
+  return Object.keys(ANNUAL_GROUPS).find((name) => ANNUAL_GROUPS[name].has(code)) || null;
+}
+
+function compareAnnualRows(a, b) {
+  return String(a["Numero sospeso"]).localeCompare(String(b["Numero sospeso"]), "it", { numeric: true })
+    || String(a["Anno riferimento"]).localeCompare(String(b["Anno riferimento"]), "it", { numeric: true })
+    || String(a["Data riversamento"]).localeCompare(String(b["Data riversamento"]), "it", { numeric: true });
 }
 
 function buildControls(records, rows, imuRows, multeRows, annualRows = [], allSuspesi = []) {
@@ -200,12 +210,22 @@ function buildControls(records, rows, imuRows, multeRows, annualRows = [], allSu
   const reused = records.filter((record) => record.match?.reused).length;
   const usedIds = new Set(matched.map((record) => record.match.sospesoId));
   const annualCents = annualRows.reduce((sum, row) => sum + (RuoliSuspesi.amountToCents(row.TOTALE) || 0), 0);
+  const annualRelevantCents = records.flatMap((record) => record.rows || []).reduce((sum, movement) =>
+    sum + (annualGroupForCode(movement.articolo_normalizzato || movement.articolo)
+      ? (RuoliSuspesi.amountToCents(movement.riversato) || 0)
+      : 0), 0);
+  const annualExcludedCents = records.flatMap((record) => record.rows || []).reduce((sum, movement) =>
+    sum + (!annualGroupForCode(movement.articolo_normalizzato || movement.articolo)
+      ? (RuoliSuspesi.amountToCents(movement.riversato) || 0)
+      : 0), 0);
   const pdfCents = records.reduce((sum, record) => sum + (RuoliSuspesi.amountToCents(record.total_riversato) || 0), 0);
+  const detailCents = rows.reduce((sum, row) => sum + (RuoliSuspesi.amountToCents(row.riversato) || 0), 0);
   const parsedMovementsValid = records.every((record) => Array.isArray(record.rows) && record.rows.length > 0);
   const matchingValid = records.length > 0 && parsedMovementsValid
     && matched.length === records.length && !missing && !ambiguous && !reused;
-  const annualValid = annualCents === pdfCents;
-  const accountingValid = status === "OK" && RuoliSuspesi.amountToCents(difference) === 0 && unmappedRows.length === 0;
+  const annualValid = annualCents === annualRelevantCents;
+  const accountingValid = status === "OK" && RuoliSuspesi.amountToCents(difference) === 0
+    && detailCents === pdfCents && unmappedRows.length === 0;
   const exportAllowed = matchingValid && annualValid && accountingValid;
   const finalStatus = exportAllowed ? status : "BLOCCATO";
   return {
@@ -219,14 +239,18 @@ function buildControls(records, rows, imuRows, multeRows, annualRows = [], allSu
       { Controllo: "Abbinamenti ambigui", Valore: ambiguous, Note: "" },
       { Controllo: "Sospesi riutilizzati", Valore: reused, Note: "" },
       { Controllo: "Sospesi importati ma non utilizzati", Valore: allSuspesi.filter((item) => !usedIds.has(item.id)).length, Note: "" },
+      { Controllo: "Totale rilevante per riepilogo annuale", Valore: annualRelevantCents / 100, Note: "Solo codici ammessi" },
       { Controllo: "Totale riepilogo annuale", Valore: annualCents / 100, Note: "" },
-      { Controllo: "Confronto totale annuale / PDF selezionati", Valore: (annualCents - pdfCents) / 100, Note: annualValid ? "OK" : "NON QUADRATO" },
+      { Controllo: "Importi esclusi dal riepilogo annuale", Valore: annualExcludedCents / 100, Note: "Non suddivisi per anno" },
+      { Controllo: "Differenza annuale", Valore: (annualCents - annualRelevantCents) / 100, Note: annualValid ? "OK" : "NON QUADRATO" },
       { Controllo: "Elenco PDF inclusi", Valore: records.map((record) => record.source_file_name).join("; "), Note: "" },
       { Controllo: "Numero righe movimento estratte", Valore: rows.length, Note: "" },
       { Controllo: "Numero prospetti per ruolo trovati", Valore: prospetti.length, Note: prospetti.join("; ") },
       { Controllo: "Numero righe IMU - RIFIUTI", Valore: imuRows.length, Note: "" },
       { Controllo: "Numero righe MULTE", Valore: multeRows.length, Note: "" },
       { Controllo: "Totale riversato da dettaglio", Valore: totalDetail, Note: "" },
+      { Controllo: "Totale riversato dei PDF", Valore: pdfCents / 100, Note: "" },
+      { Controllo: "Differenza tra dettaglio e totale PDF", Valore: (detailCents - pdfCents) / 100, Note: detailCents === pdfCents ? "OK" : "NON QUADRATO" },
       { Controllo: "Totale foglio IMU - RIFIUTI", Valore: totalImu, Note: "" },
       { Controllo: "Totale foglio MULTE", Valore: totalMulte, Note: "" },
       { Controllo: "Totale codici non mappati", Valore: roundCurrency(unmappedRows.reduce((sum, row) => sum + row.riversato, 0)), Note: "" },
@@ -241,7 +265,9 @@ function buildControls(records, rows, imuRows, multeRows, annualRows = [], allSu
     difference,
     unmappedCodes, matched: matched.length, manual, missing, ambiguous, reused,
     unused: allSuspesi.filter((item) => !usedIds.has(item.id)).length,
-    annualTotal: annualCents / 100, annualDifference: (annualCents - pdfCents) / 100,
+    annualRelevantTotal: annualRelevantCents / 100, annualTotal: annualCents / 100,
+    annualExcludedTotal: annualExcludedCents / 100,
+    annualDifference: (annualCents - annualRelevantCents) / 100,
     exportAllowed
   };
 }
@@ -297,5 +323,7 @@ window.buildReversaliRows = buildReversaliRows;
 window.buildProspettiRows = buildProspettiRows;
 window.buildControls = buildControls;
 window.buildAnnualSummary = buildAnnualSummary;
+window.annualGroupForCode = annualGroupForCode;
+window.compareAnnualRows = compareAnnualRows;
 window.ANNUAL_COLUMNS = ANNUAL_COLUMNS;
 window.buildWorkbookData = buildWorkbookData;

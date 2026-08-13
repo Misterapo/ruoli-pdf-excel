@@ -19,7 +19,7 @@ function exportWorkbook(workbookData, settings) {
     "Note"
   ]);
   appendObjectSheet(workbook, "Riepilogo annuale", workbookData.annualRows, ANNUAL_COLUMNS, {
-    totalColumns: ["ACQUA", "IMU", "TARI", "IRPEF", "ALTRI", "TOTALE"]
+    totalColumns: ["ACQUA", "IMU", "TARI", "IRPEF", "TOTALE"]
   });
   appendObjectSheet(workbook, "Controlli", workbookData.controls.summary, ["Controllo", "Valore", "Note"]);
 
@@ -28,7 +28,7 @@ function exportWorkbook(workbookData, settings) {
 
 function exportAnnualWorkbook(workbookData, settings) {
   const workbook = XLSX.utils.book_new();
-  const options = { totalColumns: ["ACQUA", "IMU", "TARI", "IRPEF", "ALTRI", "TOTALE"] };
+  const options = { totalColumns: ["ACQUA", "IMU", "TARI", "IRPEF", "TOTALE"] };
   appendObjectSheet(workbook, "Riepilogo annuale", workbookData.annualRows, ANNUAL_COLUMNS, options);
   const years = [...new Set(workbookData.annualRows.map((row) => row["Anno riferimento"]))].sort();
   for (const year of years) {
@@ -113,7 +113,6 @@ function formatNumericCells(worksheet, data, header) {
     "IMU",
     "TARI",
     "IRPEF",
-    "ALTRI",
     "TOTALE",
     "Valore"
   ]);

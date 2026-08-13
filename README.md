@@ -20,10 +20,9 @@ Il riepilogo usa esclusivamente `anno_riferimento` dei movimenti e sempre l'impo
 - **ACQUA**: `9000`, `9170`, `9175`;
 - **IMU**: `2R60`;
 - **TARI**: `2R28`, `2Y54`, `0434`/`434`, `2S79`;
-- **IRPEF**: `9361`, `9362`, `9363`, `933I` (lettera I);
-- **ALTRI**: ogni altro codice, senza perdere importi.
+- **IRPEF**: `9361`, `9362`, `9363`, `933I` (lettera I).
 
-Per ogni riga vale `TOTALE = ACQUA + IMU + TARI + IRPEF + ALTRI`. La normalizzazione numerica conserva la compatibilità fra codici con e senza zeri iniziali. Le altre mappature, i capitoli e gli accertamenti restano configurabili in `config.js`.
+La lista è una whitelist: nessun altro codice entra nel riepilogo annuale. Per ogni riga vale `TOTALE = ACQUA + IMU + TARI + IRPEF`; le righe sono ordinate per numero sospeso (ordinamento numerico naturale) e poi per anno crescente. Sanzioni, interessi, spese di notifica e altre voci non vengono divisi per anno, ma restano nel dettaglio, nelle tabelle contabili, nel riepilogo reversali e nell'Excel completo. La quadratura annuale confronta il riepilogo con il solo totale dei movimenti appartenenti alla whitelist e mostra separatamente il totale escluso. Le altre mappature, i capitoli e gli accertamenti restano configurabili in `config.js`.
 
 ## Archivio, JSON e privacy
 
