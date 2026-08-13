@@ -72,6 +72,46 @@ assert.strictEqual(annual[0].IRPEF, 5, "933I in IRPEF");
 assert.strictEqual(annual[0].ACQUA + annual[0].IMU + annual[0].TARI + annual[0].IRPEF + annual[0].ALTRI, annual[0].TOTALE, "quadratura categorie");
 assert.strictEqual(mapArticleToColumn("933I").voce, "IRPEF", "933I nella mappatura generale");
 
+const archived933I = {
+  id: "archived-933i",
+  rows: [{
+    articolo: "933I",
+    articolo_normalizzato: "933I",
+    categoria_destinazione: "NON MAPPATO",
+    colonna_destinazione: ""
+  }]
+};
+const enrichedArchiveRecord = RuoliStorage.enrichPdfRecord(archived933I);
+assert.strictEqual(enrichedArchiveRecord.rows[0].categoria_destinazione, "IMU - RIFIUTI", "record PDF archiviato riarricchito con mappatura corrente");
+assert.strictEqual(enrichedArchiveRecord.rows[0].colonna_destinazione, "IRPEF", "933I archiviato riclassificato come IRPEF");
+
+const normalizedV1 = RuoliStorage.normalizeArchivePayload({ version: 1, records: [archived933I] });
+assert.strictEqual(normalizedV1.records.length, 1, "record versione 1 conservati nell'importazione sostitutiva");
+assert.strictEqual(normalizedV1.records[0].rows[0].colonna_destinazione, "IRPEF", "record versione 1 riarricchito");
+assert.strictEqual(normalizedV1.treasury, null, "tesoreria mancante in versione 1 sostituita con archivio vuoto");
+assert.deepStrictEqual(normalizedV1.matches, {}, "abbinamenti mancanti in versione 1 sostituiti con archivio vuoto");
+const normalizedNullStores = RuoliStorage.normalizeArchivePayload({ records: [], treasury: null, matches: null, settings: null });
+assert.deepStrictEqual(normalizedNullStores.records, [], "elenco PDF vuoto mantiene semantica di sostituzione completa");
+assert.strictEqual(normalizedNullStores.treasury, null, "tesoreria nulla mantiene semantica di sostituzione completa");
+assert.deepStrictEqual(normalizedNullStores.matches, {}, "abbinamenti nulli mantengono semantica di sostituzione completa");
+assert.deepStrictEqual(normalizedNullStores.settings, APP_CONFIG.defaultSettings, "impostazioni mancanti ripristinate ai valori predefiniti");
+
+const replacedStores = Object.fromEntries(["pdfs", "settings", "treasury", "matches"].map((name) => [name, { cleared: 0, values: [] }]));
+const fakeDb = {
+  transaction() {
+    const transaction = {
+      objectStore(name) {
+        return {
+          clear() { replacedStores[name].cleared += 1; },
+          put(value) { replacedStores[name].values.push(value); }
+        };
+      }
+    };
+    queueMicrotask(() => transaction.oncomplete());
+    return transaction;
+  }
+};
+
 const unmappedRecord = record("unmapped", "999", "30/01/2026", [{
   ...movement(2026, "ZZZZ", 10), articolo_normalizzato: "ZZZZ", categoria_destinazione: "NON MAPPATO", colonna_destinazione: ""
 }]);
@@ -87,6 +127,13 @@ assert.strictEqual(emptyBlocked.controls.exportAllowed, false, "PDF senza movime
 assert.strictEqual(emptyBlocked.controls.status, "BLOCCATO", "PDF senza movimenti mantiene l'esito bloccato");
 
 (async () => {
+  await RuoliStorage.replaceArchiveStores(fakeDb, normalizedV1);
+  assert(Object.values(replacedStores).every((store) => store.cleared === 1), "importazione pulisce tutti gli archivi prima del ripristino");
+  assert.strictEqual(replacedStores.pdfs.values.length, 1, "importazione ripristina soltanto i PDF del JSON");
+  assert.strictEqual(replacedStores.settings.values.length, 1, "importazione sostituisce sempre le impostazioni");
+  assert.strictEqual(replacedStores.treasury.values.length, 0, "tesoreria mancante elimina quella preesistente");
+  assert.strictEqual(replacedStores.matches.values.length, 0, "abbinamenti mancanti eliminano quelli preesistenti");
+
   let persisted = {};
   const latest = { pdf1: { status: "MANUALE", sospesoId: "s1", numero_sospeso: "203", manualSospesoId: "s1" } };
   const pendingSave = Promise.resolve().then(() => { persisted = structuredClone(latest); });
