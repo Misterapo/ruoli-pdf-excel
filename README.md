@@ -11,18 +11,32 @@ Web app statica che legge nel browser i riversamenti PDF di Agenzia Entrate-Risc
 5. Selezionare i PDF da esportare. L'app abbina ciascun riversamento mediante la sola chiave `data_riversamento + totale_riversato in centesimi`: `AUTO_CERTA` indica una corrispondenza unica, `NON_TROVATA` nessuna e `AMBIGUA` più risultati.
 6. Per un caso non trovato o ambiguo, scegliere esplicitamente dalla colonna **Numero sospeso** un sospeso libero. La scelta diventa `MANUALE`. Uno stesso sospeso non può essere usato da due PDF; il riutilizzo, gli stati irrisolti e una mancata quadratura bloccano entrambi gli export.
 7. Verificare le tabelle **IMU - RIFIUTI**, **MULTE**, **Dettaglio PDF**, **Riepilogo reversali**, **Riepilogo per anno** e **Controlli**.
-8. Scaricare l'Excel completo oppure il solo riepilogo annuale. Quest'ultimo contiene `Riepilogo annuale` e un foglio `Anno YYYY` per ogni anno trovato.
+8. Scaricare l'Excel completo oppure il solo riepilogo annuale. Entrambi includono `Riepilogo annuale` e `Accessori per sospeso`; l'export annuale aggiunge un foglio `Anno YYYY` per ogni anno trovato.
 
 ## Riepilogo annuale e codici
 
-Il riepilogo usa esclusivamente `anno_riferimento` dei movimenti e sempre l'importo `riversato`. Produce una riga per `Numero sospeso + Anno riferimento` e classifica:
+Il riepilogo usa sempre l'importo `riversato`, elaborato in centesimi interi. Per ogni numero sospeso presenta prima le righe `TRIBUTI PER ANNO`, una per ogni `anno_riferimento` in ordine crescente, e infine una sola riga `ACCESSORI NON RIPARTITI`, con anno vuoto. I gruppi sono ordinati naturalmente per numero sospeso; un sospeso composto soltanto da accessori è comunque mostrato.
+
+I tributi principali ripartiti per anno sono:
 
 - **ACQUA**: `9000`, `9170`, `9175`;
 - **IMU**: `2R60`;
 - **TARI**: `2R28`, `2Y54`, `0434`/`434`, `2S79`;
+- **MULTE**: `5242`;
 - **IRPEF**: `9361`, `9362`, `9363`, `933I` (lettera I).
 
-La lista è una whitelist: nessun altro codice entra nel riepilogo annuale. Per ogni riga vale `TOTALE = ACQUA + IMU + TARI + IRPEF`; le righe sono ordinate per numero sospeso (ordinamento numerico naturale) e poi per anno crescente. Sanzioni, interessi, spese di notifica e altre voci non vengono divisi per anno, ma restano nel dettaglio, nelle tabelle contabili, nel riepilogo reversali e nell'Excel completo. La quadratura annuale confronta il riepilogo con il solo totale dei movimenti appartenenti alla whitelist e mostra separatamente il totale escluso. Le altre mappature, i capitoli e gli accertamenti restano configurabili in `config.js`.
+I quattro codici IRPEF confluiscono nell'unica colonna annuale `IRPEF`, senza colonne accessorie. Per una riga annuale vale `TOTALE = ACQUA + IMU + TARI + MULTE + IRPEF`.
+
+Sanzioni/interessi e spese di notifica sono invece aggregate una sola volta per sospeso nelle otto colonne accessorie ACQUA, IMU, TARI e MULTE. In particolare, `424`/`0424` è un accessorio TARI; `5243` e `1C34` sono sanzioni/interessi MULTE; `5354` è notifica MULTE. Il totale della riga accessori è la somma delle sole otto colonne accessorie. Questi movimenti restano anche nel dettaglio, nelle tabelle contabili e nel riepilogo reversali, senza modificare le mappature generali in `config.js`.
+
+## Fogli Excel e quadrature
+
+- `Riepilogo annuale` riproduce le righe tributi e accessori della tabella web, senza ripetizioni;
+- `Accessori per sospeso` contiene una sola riga per sospeso e le otto colonne accessorie;
+- ogni `Anno YYYY` contiene esclusivamente ACQUA, IMU, TARI, MULTE e IRPEF dell'anno indicato, senza accessori;
+- gli importi sono celle Excel numeriche formattate con due decimali.
+
+I controlli indipendenti applicano le formule: `differenza annuale = totale righe tributi - totale tributi principali ammessi dalla sorgente`; `differenza accessori = totale Accessori per sospeso - totale accessori ammessi dalla sorgente`; `differenza rilevante = (tributi + accessori del riepilogo) - (tributi + accessori della sorgente)`. Resta inoltre obbligatoria la quadratura contabile completa fra dettaglio, fogli contabili e totale riversato dei PDF. Qualunque differenza, codice realmente non mappato o abbinamento mancante, ambiguo o riutilizzato blocca l'export.
 
 ## Archivio, JSON e privacy
 

@@ -382,8 +382,13 @@ function renderControls() {
     , ["Sospesi non utilizzati", controls.unused]
     , ["Totale rilevante per riepilogo annuale", formatCurrency(controls.annualRelevantTotal)]
     , ["Totale riepilogo annuale", formatCurrency(controls.annualTotal)]
-    , ["Importi esclusi dal riepilogo annuale", formatCurrency(controls.annualExcludedTotal)]
     , ["Differenza annuale", formatCurrency(controls.annualDifference)]
+    , ["Totale accessori ammessi dalla sorgente", formatCurrency(controls.accessoryRelevantTotal)]
+    , ["Totale Accessori per sospeso", formatCurrency(controls.accessoryTotal)]
+    , ["Differenza accessori", formatCurrency(controls.accessoryDifference)]
+    , ["Totale complessivo rilevante", formatCurrency(controls.relevantTotal)]
+    , ["Totale riepilogo rilevante", formatCurrency(controls.relevantSummaryTotal)]
+    , ["Differenza complessiva rilevante", formatCurrency(controls.relevantDifference)]
   ];
 
   for (const [label, value] of cards) {
