@@ -45,9 +45,15 @@
     return Number.isFinite(number) ? Math.round(number * 100) : null;
   }
 
-  function findColumn(headers, candidates) {
+  function findPreferredColumn(headers, requiredHeader, approvedAliases, fallbackCandidates) {
     const normalized = headers.map(normalizeHeader);
-    return normalized.findIndex((header) => candidates.some((candidate) => header === candidate || header.includes(candidate)));
+    const required = normalized.indexOf(requiredHeader);
+    if (required !== -1) return required;
+
+    const alias = normalized.findIndex((header) => approvedAliases.includes(header));
+    if (alias !== -1) return alias;
+
+    return normalized.findIndex((header) => fallbackCandidates.some((candidate) => header.includes(candidate)));
   }
 
   function findPreferredDateColumn(headers) {
@@ -67,8 +73,8 @@
     if (!Array.isArray(matrix) || !matrix.length) return { fileName, rows: [], discarded: [], duplicates: [] };
     const headers = matrix[0];
     const dateIndex = findPreferredDateColumn(headers);
-    const amountIndex = findColumn(headers, ["importo"]);
-    const numberIndex = findColumn(headers, ["riscossione", "numero riscossione", "numero sospeso", "sospeso"]);
+    const amountIndex = findPreferredColumn(headers, "importo", ["importo riscossione", "importo sospeso"], ["importo"]);
+    const numberIndex = findPreferredColumn(headers, "riscossione", ["numero riscossione", "numero sospeso", "sospeso"], ["riscossione", "sospeso"]);
     if ([dateIndex, amountIndex, numberIndex].includes(-1)) throw new Error("Intestazioni obbligatorie non trovate: data effettuazione, importo, riscossione.");
     const rows = [], discarded = [], duplicates = [], seen = new Set();
     matrix.slice(1).forEach((source, offset) => {

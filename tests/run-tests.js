@@ -27,6 +27,12 @@ const preferredDate = RuoliSuspesi.parseTreasuryRows([
   ["29/01/2026", "30/01/2026", "692,53", "203"]
 ]);
 assert.strictEqual(preferredDate.rows[0].data_effettuazione, "30/01/2026", "priorità a Data effettuazione");
+const preferredAmountAndNumber = RuoliSuspesi.parseTreasuryRows([
+  ["Data effettuazione", "Importo commissioni", "Importo", "Data riscossione", "Riscossione"],
+  ["30/01/2026", "1,50", "692,53", "29/01/2026", "203"]
+]);
+assert.strictEqual(preferredAmountAndNumber.rows[0].importo_centesimi, 69253, "priorità all'intestazione Importo esatta");
+assert.strictEqual(preferredAmountAndNumber.rows[0].numero_sospeso, "203", "priorità all'intestazione Riscossione esatta");
 
 const pdf = (id, date, total) => ({ id, data_riversamento: date, total_riversato: total, rows: [] });
 let matches = RuoliSuspesi.calculateMatches([pdf("a", "30/01/2026", 692.53)], imported.rows);
