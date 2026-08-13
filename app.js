@@ -380,8 +380,10 @@ function renderControls() {
     , ["Manuali / non trovati / ambigui", `${controls.manual} / ${controls.missing} / ${controls.ambiguous}`]
     , ["Sospesi riutilizzati", controls.reused]
     , ["Sospesi non utilizzati", controls.unused]
-    , ["Totale annuale", formatCurrency(controls.annualTotal)]
-    , ["Differenza annuale/PDF", formatCurrency(controls.annualDifference)]
+    , ["Totale rilevante per riepilogo annuale", formatCurrency(controls.annualRelevantTotal)]
+    , ["Totale riepilogo annuale", formatCurrency(controls.annualTotal)]
+    , ["Importi esclusi dal riepilogo annuale", formatCurrency(controls.annualExcludedTotal)]
+    , ["Differenza annuale", formatCurrency(controls.annualDifference)]
   ];
 
   for (const [label, value] of cards) {

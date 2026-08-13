@@ -61,16 +61,69 @@ assert.strictEqual(matches.empty.invalidParse, true, "PDF senza movimenti segnal
 const record = (id, number, date, movements) => ({ id, data_riversamento: date, total_riversato: movements.reduce((s, x) => s + x.riversato, 0), match: { status: "MANUALE", numero_sospeso: number, sospesoId: id }, rows: movements });
 const movement = (year, code, amount) => ({ anno_riferimento: String(year), articolo: code, riversato: amount });
 const annual = buildAnnualSummary([
-  record("s1", "203", "30/01/2026", [movement(2021, "9000", 10), movement(2021, "9170", 2), movement(2021, "2R60", 3), movement(2021, "0434", 4), movement(2021, "933I", 5), movement(2021, "XXXX", 6)]),
-  record("s2", "1245", "22/06/2026", [movement(2022, "9175", 7.52)])
+  record("s2", "1245", "22/06/2026", [movement(2020, "9175", 7.52)]),
+  record("s1", "203", "30/01/2026", [movement(2014, "9000", 10), movement(2011, "9170", 2), movement(2013, "2R60", 3), movement(2012, "0434", 4), movement(2012, "933I", 5), movement(2012, "424", 6)]),
+  record("s3", "25", "20/01/2026", [movement(2022, "2R28", 1)])
 ]);
-assert.deepStrictEqual(annual.map((x) => x["Anno riferimento"]), ["2021", "2022"], "raggruppamento più anni");
-assert.strictEqual(annual[0].ACQUA, 12, "ACQUA");
-assert.strictEqual(annual[0].IMU, 3, "IMU");
-assert.strictEqual(annual[0].TARI, 4, "TARI e zero iniziale");
-assert.strictEqual(annual[0].IRPEF, 5, "933I in IRPEF");
-assert.strictEqual(annual[0].ACQUA + annual[0].IMU + annual[0].TARI + annual[0].IRPEF + annual[0].ALTRI, annual[0].TOTALE, "quadratura categorie");
+assert.deepStrictEqual(annual.map((x) => `${x["Numero sospeso"]}/${x["Anno riferimento"]}`),
+  ["25/2022", "203/2011", "203/2012", "203/2013", "203/2014", "1245/2020"],
+  "ordinamento naturale per sospeso, poi anno crescente con tutte le righe 203 consecutive");
+const annual203_2012 = annual.find((row) => row["Numero sospeso"] === "203" && row["Anno riferimento"] === "2012");
+assert.strictEqual(annual203_2012.TARI, 4, "TARI e zero iniziale");
+assert.strictEqual(annual203_2012.IRPEF, 5, "933I in IRPEF");
+assert.strictEqual(annual203_2012.TOTALE, 9, "424 escluso dal totale annuale");
+assert(!Object.prototype.hasOwnProperty.call(annual203_2012, "ALTRI"), "ALTRI assente dalle righe annuali");
+assert(!ANNUAL_COLUMNS.includes("ALTRI"), "ALTRI assente dalle intestazioni annuali");
+for (const row of annual) assert.strictEqual(row.ACQUA + row.IMU + row.TARI + row.IRPEF, row.TOTALE, "totale limitato alle quattro categorie");
+
+const categoryCases = buildAnnualSummary([record("categories", "203", "30/01/2026", [
+  ...["2R61", "2R62", "2R63", "2Y98", "2R51", "2Y99", "1C39", "2R95", "2S74", "2Z01", "2SZ01", "1S15"].map((code) => movement(2020, code, 10)),
+  movement(2020, "2R60", 1), movement(2020, "2R28", 2), movement(2020, "2Y54", 3),
+  movement(2020, "0434", 4), movement(2020, "434", 5), movement(2020, "2S79", 6), movement(2020, "933I", 7)
+])])[0];
+assert.strictEqual(categoryCases.IMU, 1, "solo 2R60 incluso in IMU");
+assert.strictEqual(categoryCases.TARI, 20, "soli codici principali inclusi in TARI");
+assert.strictEqual(categoryCases.IRPEF, 7, "933I incluso in IRPEF");
+assert.strictEqual(categoryCases.TOTALE, 28, "accessori esclusi dal totale");
 assert.strictEqual(mapArticleToColumn("933I").voce, "IRPEF", "933I nella mappatura generale");
+
+const accountingMovements = enrichRows([movement(2020, "2R28", 20), movement(2020, "424", 6)]);
+const accountingRecord = record("accounting", "203", "30/01/2026", accountingMovements);
+const accountingData = buildWorkbookData([accountingRecord]);
+assert.strictEqual(accountingData.controls.annualRelevantTotal, 20, "quadratura annuale sul solo totale ammesso");
+assert.strictEqual(accountingData.controls.annualTotal, 20, "riepilogo annuale coincide con il rilevante");
+assert.strictEqual(accountingData.controls.annualExcludedTotal, 6, "totale accessori esclusi esposto senza ripartizione annuale");
+assert.strictEqual(accountingData.controls.annualDifference, 0, "differenza annuale in centesimi nulla");
+assert.strictEqual(accountingData.detailRows.reduce((sum, row) => sum + row.riversato, 0), 26, "accessorio conservato nel dettaglio");
+assert.strictEqual(accountingData.imuRows[0]["TARI/TARSU/TARES SANZ/INTERESSI"], 6, "accessorio conservato nella contabilità");
+assert.strictEqual(accountingData.reversaliRows.find((row) => row.Voce === "TARI/TARSU/TARES SANZ/INTERESSI").Totale, 6, "accessorio conservato nelle reversali");
+assert.strictEqual(accountingData.controls.exportAllowed, true, "accessorio mappato escluso dall'annuale non blocca l'export");
+const mismatchedPdfTotal = { ...accountingRecord, total_riversato: 27 };
+assert.strictEqual(buildWorkbookData([mismatchedPdfTotal]).controls.exportAllowed, false, "quadratura contabile completa rispetto al totale PDF ancora obbligatoria");
+
+const fakeSheets = [];
+global.XLSX = {
+  utils: {
+    book_new: () => ({ SheetNames: [] }),
+    aoa_to_sheet: (data) => {
+      const sheet = {};
+      data.forEach((row, r) => row.forEach((value, c) => { sheet[`${String.fromCharCode(65 + c)}${r + 1}`] = { v: value, t: typeof value === "number" ? "n" : "s" }; }));
+      return sheet;
+    },
+    encode_range: () => "A1:J9",
+    encode_cell: ({ r, c }) => `${String.fromCharCode(65 + c)}${r + 1}`,
+    book_append_sheet: (workbook, sheet, name) => { workbook.SheetNames.push(name); fakeSheets.push({ name, sheet }); }
+  },
+  writeFile: () => {}
+};
+vm.runInThisContext(fs.readFileSync("excel.js", "utf8"), { filename: "excel.js" });
+exportAnnualWorkbook(accountingData, { annoGestione: 2026 });
+assert.deepStrictEqual(fakeSheets.map(({ name }) => name), ["Riepilogo annuale", "Anno 2020"], "riepilogo generale e foglio annuale prodotti nello stesso ordine");
+for (const { sheet } of fakeSheets) {
+  assert(!Object.values(sheet).some((cell) => cell.v === "ALTRI"), "ALTRI assente dagli export annuali");
+  const moneyCell = Object.values(sheet).find((cell) => cell.v === 20 && cell.t === "n");
+  assert(moneyCell && moneyCell.z === "#,##0.00", "importi Excel numerici con due decimali");
+}
 
 const archived933I = {
   id: "archived-933i",
