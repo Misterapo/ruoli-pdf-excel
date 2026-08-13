@@ -1,86 +1,36 @@
 # Ruoli PDF -> Excel
 
-Web app statica per leggere localmente PDF di riversamento Agenzia Entrate-Riscossione e generare un file Excel di lavoro.
+Web app statica che legge nel browser i riversamenti PDF di Agenzia Entrate-Riscossione, li abbina ai sospesi di tesoreria e genera Excel contabili. File e dati non vengono inviati a server.
 
-## Uso
+## Flusso completo
 
-1. Apri `index.html` nel browser o pubblica la cartella su GitHub Pages.
-2. Compila la configurazione archivio: Comune / Ente, anno gestione e operatore.
-3. Carica uno o piu PDF di riversamento.
-4. Premi **Analizza PDF**.
-5. Seleziona nell'archivio locale i PDF da includere.
-6. Controlla le anteprime:
-   - `IMU - RIFIUTI`
-   - `MULTE`
-   - `Riepilogo reversali`
-   - `Controlli`
-7. Scarica l'Excel completo.
+1. Aprire `index.html` direttamente o tramite un server statico/GitHub Pages (non è richiesta una build).
+2. Compilare e salvare Comune/Ente, anno gestione e operatore.
+3. In **File sospesi di tesoreria**, importare o sostituire un `.xls`/`.xlsx` con le colonne `data effettuazione`, `importo` e `riscossione`. Maiuscole, spazi e punteggiatura delle intestazioni sono normalizzati. Le date possono essere date Excel o `GG/MM/AAAA`; gli importi sono convertiti in centesimi interi. L'interfaccia mostra file, righe valide, scarti e duplicati. Le righe incomplete non vengono usate.
+4. Caricare uno o più PDF e premere **Analizza PDF**. I PDF vengono archiviati in IndexedDB.
+5. Selezionare i PDF da esportare. L'app abbina ciascun riversamento mediante la sola chiave `data_riversamento + totale_riversato in centesimi`: `AUTO_CERTA` indica una corrispondenza unica, `NON_TROVATA` nessuna e `AMBIGUA` più risultati.
+6. Per un caso non trovato o ambiguo, scegliere esplicitamente dalla colonna **Numero sospeso** un sospeso libero. La scelta diventa `MANUALE`. Uno stesso sospeso non può essere usato da due PDF; il riutilizzo, gli stati irrisolti e una mancata quadratura bloccano entrambi gli export.
+7. Verificare le tabelle **IMU - RIFIUTI**, **MULTE**, **Dettaglio PDF**, **Riepilogo reversali**, **Riepilogo per anno** e **Controlli**.
+8. Scaricare l'Excel completo oppure il solo riepilogo annuale. Quest'ultimo contiene `Riepilogo annuale` e un foglio `Anno YYYY` per ogni anno trovato.
 
-## Privacy
+## Riepilogo annuale e codici
 
-I PDF vengono letti nel browser con PDF.js. Nessun PDF e nessun dato estratto viene caricato su server esterni dall'app.
+Il riepilogo usa esclusivamente `anno_riferimento` dei movimenti e sempre l'importo `riversato`. Produce una riga per `Numero sospeso + Anno riferimento` e classifica:
 
-Non caricare nella repository PDF reali, Excel reali o file con dati personali. Gli allegati reali servono solo per capire la struttura.
+- **ACQUA**: `9000`, `9170`, `9175`;
+- **IMU**: `2R60`;
+- **TARI**: `2R28`, `2Y54`, `0434`/`434`, `2S79`;
+- **IRPEF**: `9361`, `9362`, `9363`, `933I` (lettera I);
+- **ALTRI**: ogni altro codice, senza perdere importi.
 
-## Archivio locale
+Per ogni riga vale `TOTALE = ACQUA + IMU + TARI + IRPEF + ALTRI`. La normalizzazione numerica conserva la compatibilità fra codici con e senza zeri iniziali. Le altre mappature, i capitoli e gli accertamenti restano configurabili in `config.js`.
 
-L'app usa IndexedDB, quindi i dati restano nel browser e nel profilo utente del PC.
+## Archivio, JSON e privacy
 
-Funzioni disponibili:
+IndexedDB conserva configurazione, PDF normalizzati, file sospesi normalizzato, esiti e scelte manuali. Export/import JSON versione 2 include tutti questi dati ed è retrocompatibile con gli archivi versione 1 privi dei nuovi campi. Rimozione del file sospesi elimina anche gli abbinamenti; lo svuotamento PDF non elimina automaticamente la tesoreria.
 
-- salvataggio automatico dei PDF analizzati;
-- deduplica su nome file, data riversamento e totale riversato;
-- eliminazione di un singolo PDF;
-- svuotamento archivio;
-- export archivio in JSON;
-- import archivio da JSON.
+Il JSON può contenere dati personali: conservarlo come file riservato. Non inserire nel repository PDF, Excel o JSON reali. PDF.js e SheetJS sono caricati da CDN, ma l'elaborazione avviene localmente.
 
-Il JSON esportato puo contenere dati personali estratti dai PDF: trattarlo come un file riservato.
+## Test
 
-## Excel generato
-
-Il workbook contiene:
-
-1. `IMU - RIFIUTI`
-2. `MULTE`
-3. `Dettaglio PDF`
-4. `Riepilogo reversali`
-5. `Controlli`
-
-Il nome file segue queste regole:
-
-- `RUOLI_YYYY.xlsx` se non c'e una data unica;
-- `RUOLI_YYYY-MM-DD.xlsx` se i PDF selezionati hanno la stessa data riversamento;
-- `RUOLI_YYYY_periodo.xlsx` se sono selezionate date diverse.
-
-## Configurazione codici
-
-Le mappature degli articoli sono in `config.js`, dentro `ARTICLE_MAPPINGS`.
-
-Ogni voce contiene:
-
-- `tipo`: `IMU - RIFIUTI` oppure `MULTE`;
-- `voce`: colonna Excel di destinazione;
-- `codici`: articoli da riconoscere;
-- `capitolo`;
-- `accertamento`;
-- `nota` opzionale.
-
-I codici numerici sono confrontati anche senza zeri iniziali: per esempio `0434` e `434` vengono trattati come equivalenti.
-
-## Capitoli e accertamenti
-
-Capitoli e accertamenti iniziali sono configurati in `config.js` nelle stesse voci di `ARTICLE_MAPPINGS`.
-
-La struttura `RUOLI_ACCERTATI` prepara la gestione futura dei ruoli gia accertati. In questa prima versione viene mostrato lo stato dei prospetti trovati, ma gli importi non vengono spostati automaticamente se `attivo` e `false`.
-
-## Pubblicazione su GitHub Pages
-
-La web app non richiede build.
-
-1. Carica nella repository solo i file sorgente dell'app.
-2. Non caricare PDF, Excel reali o JSON di archivio.
-3. Attiva GitHub Pages sulla branch desiderata.
-4. Apri l'URL pubblicato.
-
-Le librerie pubbliche PDF.js e SheetJS sono caricate da CDN. I dati dei PDF restano comunque nel browser.
+Eseguire `npm test`. I test non richiedono dipendenze e usano soltanto matrici e dati sintetici in memoria.

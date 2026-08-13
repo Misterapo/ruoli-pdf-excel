@@ -1,0 +1,5 @@
+{
+  "name": "ruoli-pdf-excel-static-tests",
+  "private": true,
+  "scripts": { "test": "node tests/run-tests.js" }
+}

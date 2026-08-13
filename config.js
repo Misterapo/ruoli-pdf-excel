@@ -120,7 +120,7 @@ const ARTICLE_MAPPINGS = [
   {
     tipo: "IMU - RIFIUTI",
     voce: "IRPEF",
-    codici: ["9361", "9362", "9363"],
+    codici: ["9361", "9362", "9363", "933I"],
     capitolo: "3505099",
     accertamento: "4844/2025"
   },

@@ -6,6 +6,11 @@ const elements = {
   operatoreInput: document.querySelector("#operatoreInput"),
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
   pdfInput: document.querySelector("#pdfInput"),
+  treasuryInput: document.querySelector("#treasuryInput"),
+  treasurySummary: document.querySelector("#treasurySummary"),
+  treasuryErrors: document.querySelector("#treasuryErrors"),
+  treasuryPickerText: document.querySelector("#treasuryPickerText"),
+  removeTreasuryButton: document.querySelector("#removeTreasuryButton"),
   analyzeButton: document.querySelector("#analyzeButton"),
   status: document.querySelector("#status"),
   rawText: document.querySelector("#rawText"),
@@ -18,11 +23,13 @@ const elements = {
   imuTable: document.querySelector("#imuTable"),
   multeTable: document.querySelector("#multeTable"),
   reversaliTable: document.querySelector("#reversaliTable"),
+  annualTable: document.querySelector("#annualTable"),
   controlsSummary: document.querySelector("#controlsSummary"),
   copyImuButton: document.querySelector("#copyImuButton"),
   copyMulteButton: document.querySelector("#copyMulteButton"),
   copyReversaliButton: document.querySelector("#copyReversaliButton"),
-  downloadButton: document.querySelector("#downloadButton")
+  downloadButton: document.querySelector("#downloadButton"),
+  downloadAnnualButton: document.querySelector("#downloadAnnualButton")
 };
 
 const appState = {
@@ -30,12 +37,18 @@ const appState = {
   records: [],
   selectedIds: new Set(),
   selectedFiles: [],
+  treasury: null,
+  matches: {},
+  manualSelections: {},
   workbookData: buildWorkbookData([])
 };
+let matchSaveQueue = Promise.resolve();
 
 document.addEventListener("DOMContentLoaded", initApp);
 elements.saveSettingsButton.addEventListener("click", handleSaveSettings);
 elements.pdfInput.addEventListener("change", handleFileSelection);
+elements.treasuryInput.addEventListener("change", handleTreasuryImport);
+elements.removeTreasuryButton.addEventListener("click", handleRemoveTreasury);
 elements.analyzeButton.addEventListener("click", handleAnalyzePdf);
 elements.exportArchiveButton.addEventListener("click", handleExportArchive);
 elements.importArchiveInput.addEventListener("change", handleImportArchive);
@@ -53,11 +66,18 @@ elements.copyReversaliButton.addEventListener("click", () => copyPreview(appStat
   "Note"
 ]));
 elements.downloadButton.addEventListener("click", handleDownloadExcel);
+elements.downloadAnnualButton.addEventListener("click", () => {
+  exportAnnualWorkbook(appState.workbookData, readSettingsForm());
+  setStatus("Riepilogo annuale generato.");
+});
 
 async function initApp() {
   try {
     appState.settings = await RuoliStorage.getArchiveSettings();
     appState.records = await RuoliStorage.getAllPdfRecords();
+    appState.treasury = await RuoliStorage.getTreasuryFile();
+    const storedMatches = await RuoliStorage.getMatches();
+    appState.manualSelections = Object.fromEntries(Object.entries(storedMatches).filter(([, value]) => value.manualSospesoId).map(([id, value]) => [id, value.manualSospesoId]));
     appState.selectedIds = new Set(appState.records.map((record) => record.id));
     fillSettingsForm();
     renderAll();
@@ -66,6 +86,32 @@ async function initApp() {
     console.error(error);
     setStatus("Non riesco ad aprire l'archivio locale del browser.", true);
   }
+}
+
+async function handleTreasuryImport(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+    const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, raw: true, defval: "" });
+    appState.treasury = RuoliSuspesi.parseTreasuryRows(matrix, file.name);
+    appState.manualSelections = {};
+    await RuoliStorage.saveTreasuryFile(appState.treasury);
+    renderAll();
+    setStatus(`File sospesi importato: ${file.name}.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(`File sospesi non valido: ${error.message}`, true);
+  } finally { event.target.value = ""; }
+}
+
+async function handleRemoveTreasury() {
+  await RuoliStorage.removeTreasuryFile();
+  appState.treasury = null;
+  appState.matches = {};
+  appState.manualSelections = {};
+  renderAll();
+  setStatus("File sospesi rimosso.");
 }
 
 function fillSettingsForm() {
@@ -185,16 +231,34 @@ function textItemsToLines(items) {
 }
 
 function renderAll() {
+  appState.matches = RuoliSuspesi.calculateMatches(appState.records, appState.treasury?.rows || [], appState.manualSelections);
+  const matchesToSave = structuredClone(appState.matches);
+  const manualToSave = { ...appState.manualSelections };
+  matchSaveQueue = matchSaveQueue.then(() => RuoliStorage.saveMatches(matchesToSave, manualToSave)).catch(console.error);
+  appState.records.forEach((record) => { record.match = appState.matches[record.id] || { status: "NON_TROVATA", numero_sospeso: "" }; });
   const selectedRecords = appState.records.filter((record) => appState.selectedIds.has(record.id));
-  appState.workbookData = buildWorkbookData(selectedRecords);
+  appState.workbookData = buildWorkbookData(selectedRecords, appState.treasury?.rows || []);
 
+  renderTreasurySummary();
   renderArchiveTable();
   renderTable(elements.prospettiTable, appState.workbookData.prospettiRows, ["Prospetto per ruolo", "Totale", "Numero righe", "Stato"]);
   renderTable(elements.imuTable, appState.workbookData.imuRows, APP_CONFIG.imuRifiutiColumns);
   renderTable(elements.multeTable, appState.workbookData.multeRows, APP_CONFIG.multeColumns);
   renderTable(elements.reversaliTable, appState.workbookData.reversaliRows, ["Tipo", "Voce", "Capitolo", "Accertamento", "Codici articolo", "Prospetti per ruolo inclusi", "Totale", "Note"]);
+  renderTable(elements.annualTable, appState.workbookData.annualRows, ANNUAL_COLUMNS);
   renderControls();
   setExportButtons(selectedRecords.length > 0);
+}
+
+function renderTreasurySummary() {
+  const file = appState.treasury;
+  elements.removeTreasuryButton.disabled = !file;
+  elements.treasuryPickerText.textContent = file ? "Sostituisci file" : "Scegli file";
+  elements.treasurySummary.textContent = file
+    ? `${file.fileName} — righe valide: ${file.rows.length}; scartate: ${file.discarded.length}; duplicati: ${file.duplicates.length}.`
+    : "Nessun file sospesi importato.";
+  elements.treasuryErrors.textContent = file?.discarded.length
+    ? `Righe ignorate: ${file.discarded.map((row) => row.rowNumber).join(", ")}.` : "";
 }
 
 function renderArchiveTable() {
@@ -209,9 +273,30 @@ function renderArchiveTable() {
       <td>${record.prospetti?.length || 0}</td>
       <td>${record.row_count || 0}</td>
       <td>${formatCurrency(record.total_riversato || 0)}</td>
+      <td class="sospeso-cell"></td>
+      <td>${escapeHtml(record.match?.reused ? `${record.match.status} - RIUTILIZZATO` : record.match?.status || "NON_TROVATA")}</td>
       <td>${escapeHtml(record.status || "")}</td>
       <td><button type="button" class="link-button">Elimina</button></td>
     `;
+
+    const matchCell = row.querySelector(".sospeso-cell");
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", `Numero sospeso per ${record.source_file_name}`);
+    select.innerHTML = `<option value="">${record.match?.numero_sospeso ? escapeHtml(record.match.numero_sospeso) : "Seleziona..."}</option>`;
+    const claimedElsewhere = new Set(Object.entries(appState.matches).filter(([id, value]) => id !== record.id && value.sospesoId).map(([, value]) => value.sospesoId));
+    for (const item of appState.treasury?.rows || []) {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = `${item.numero_sospeso} — ${item.data_effettuazione} — ${formatCurrency(item.importo_centesimi / 100)}`;
+      option.disabled = claimedElsewhere.has(item.id) && appState.manualSelections[record.id] !== item.id;
+      option.selected = appState.manualSelections[record.id] === item.id;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      if (select.value) appState.manualSelections[record.id] = select.value; else delete appState.manualSelections[record.id];
+      renderAll();
+    });
+    matchCell.appendChild(select);
 
     row.querySelector("input").addEventListener("change", (event) => {
       if (event.target.checked) {
@@ -286,6 +371,12 @@ function renderControls() {
     ["Totale MULTE", formatCurrency(controls.totalMulte)],
     ["Differenza", formatCurrency(controls.difference)],
     ["Codici non mappati", controls.unmappedCodes.length ? controls.unmappedCodes.join(", ") : "Nessuno"]
+    , ["PDF abbinati", `${controls.matched}/${appState.workbookData.records.length}`]
+    , ["Manuali / non trovati / ambigui", `${controls.manual} / ${controls.missing} / ${controls.ambiguous}`]
+    , ["Sospesi riutilizzati", controls.reused]
+    , ["Sospesi non utilizzati", controls.unused]
+    , ["Totale annuale", formatCurrency(controls.annualTotal)]
+    , ["Differenza annuale/PDF", formatCurrency(controls.annualDifference)]
   ];
 
   for (const [label, value] of cards) {
@@ -300,7 +391,8 @@ function setExportButtons(enabled) {
   elements.copyImuButton.disabled = !enabled || appState.workbookData.imuRows.length === 0;
   elements.copyMulteButton.disabled = !enabled || appState.workbookData.multeRows.length === 0;
   elements.copyReversaliButton.disabled = !enabled || appState.workbookData.reversaliRows.length === 0;
-  elements.downloadButton.disabled = !enabled;
+  elements.downloadButton.disabled = !enabled || !appState.workbookData.controls.exportAllowed;
+  elements.downloadAnnualButton.disabled = !enabled || !appState.workbookData.controls.exportAllowed;
 }
 
 async function handleExportArchive() {
@@ -320,6 +412,9 @@ async function handleImportArchive(event) {
     const result = await RuoliStorage.importArchive(payload);
     appState.settings = result.settings;
     appState.records = await RuoliStorage.getAllPdfRecords();
+    appState.treasury = await RuoliStorage.getTreasuryFile();
+    const matches = await RuoliStorage.getMatches();
+    appState.manualSelections = Object.fromEntries(Object.entries(matches).filter(([, value]) => value.manualSospesoId).map(([id, value]) => [id, value.manualSospesoId]));
     appState.selectedIds = new Set(appState.records.map((record) => record.id));
     fillSettingsForm();
     renderAll();

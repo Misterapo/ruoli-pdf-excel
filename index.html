@@ -43,6 +43,21 @@
       </div>
     </section>
 
+    <section class="panel" aria-labelledby="treasury-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="treasury-title">File sospesi di tesoreria</h2>
+          <p>Importa un file XLS/XLSX: data effettuazione, importo e riscossione vengono normalizzati localmente.</p>
+        </div>
+        <div class="actions">
+          <label class="file-picker"><input id="treasuryInput" type="file" accept=".xls,.xlsx"><span id="treasuryPickerText">Scegli file</span></label>
+          <button id="removeTreasuryButton" type="button" class="danger-button" disabled>Rimuovi file</button>
+        </div>
+      </div>
+      <div id="treasurySummary" class="status">Nessun file sospesi importato.</div>
+      <div id="treasuryErrors" class="table-help"></div>
+    </section>
+
     <section class="panel" aria-labelledby="upload-title">
       <div class="section-heading">
         <div>
@@ -89,6 +104,8 @@
               <th>Prospetti</th>
               <th>Righe</th>
               <th>Totale riversato</th>
+              <th>Numero sospeso</th>
+              <th>Esito abbinamento</th>
               <th>Stato</th>
               <th>Azione</th>
             </tr>
@@ -97,6 +114,14 @@
         </table>
       </div>
       <p id="archiveHelp" class="table-help">Archivio vuoto.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="annual-title">
+      <div class="section-heading">
+        <div><h2 id="annual-title">Riepilogo per anno</h2><p>Importi riversati raggruppati esclusivamente per anno riferimento e numero sospeso.</p></div>
+        <button id="downloadAnnualButton" type="button" disabled>Scarica riepilogo per anno</button>
+      </div>
+      <div class="table-wrap"><table id="annualTable"><thead></thead><tbody></tbody></table></div>
     </section>
 
     <section class="panel" aria-labelledby="prospetti-title">
@@ -172,6 +197,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="config.js"></script>
   <script src="parser.js"></script>
+  <script src="sospesi.js"></script>
   <script src="mapper.js"></script>
   <script src="storage.js"></script>
   <script src="excel.js"></script>
