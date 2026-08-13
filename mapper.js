@@ -20,6 +20,7 @@ function mapArticleToColumn(articleCode) {
 function enrichRows(rows) {
   return rows.map((row) => {
     const mapping = mapArticleToColumn(row.articolo_normalizzato || row.articolo);
+    const note = removeGeneratedUnmappedNote(row.note);
 
     if (!mapping) {
       return {
@@ -27,7 +28,7 @@ function enrichRows(rows) {
         articolo_normalizzato: normalizeArticleCode(row.articolo),
         categoria_destinazione: "NON MAPPATO",
         colonna_destinazione: "",
-        note: appendNote(row.note, "Codice articolo non mappato")
+        note: appendNote(note, "Codice articolo non mappato")
       };
     }
 
@@ -36,9 +37,17 @@ function enrichRows(rows) {
       articolo_normalizzato: normalizeArticleCode(row.articolo),
       categoria_destinazione: mapping.categoria_destinazione,
       colonna_destinazione: mapping.colonna_destinazione,
-      note: mapping.nota ? appendNote(row.note, mapping.nota) : row.note
+      note: mapping.nota ? appendNote(note, mapping.nota) : note
     };
   });
+}
+
+function removeGeneratedUnmappedNote(currentNote) {
+  return String(currentNote || "")
+    .split(";")
+    .map((note) => note.trim())
+    .filter((note) => note && note !== "Codice articolo non mappato")
+    .join("; ");
 }
 
 function aggregateRows(rows, category, columns) {
@@ -132,7 +141,47 @@ function buildProspettiRows(rows) {
   return [...grouped.values()];
 }
 
-function buildControls(records, rows, imuRows, multeRows) {
+const ANNUAL_COLUMNS = ["Numero sospeso", "Data riversamento", "Anno riferimento", "ACQUA", "IMU", "TARI", "IRPEF", "ALTRI", "TOTALE", "Codici inclusi", "Note"];
+const ANNUAL_GROUPS = {
+  ACQUA: new Set(["9000", "9170", "9175"].map(normalizeArticleCode)),
+  IMU: new Set(["2R60"].map(normalizeArticleCode)),
+  TARI: new Set(["2R28", "2Y54", "0434", "434", "2S79"].map(normalizeArticleCode)),
+  IRPEF: new Set(["9361", "9362", "9363", "933I"].map(normalizeArticleCode))
+};
+
+function buildAnnualSummary(records) {
+  const grouped = new Map();
+  for (const record of records) {
+    const match = record.match || {};
+    const number = match.numero_sospeso || "";
+    for (const movement of record.rows || []) {
+      const year = String(movement.anno_riferimento || "").trim();
+      if (!year) continue;
+      const key = `${number}||${year}`;
+      if (!grouped.has(key)) grouped.set(key, {
+        "Numero sospeso": number, "Data riversamento": record.data_riversamento || "", "Anno riferimento": year,
+        ACQUA: 0, IMU: 0, TARI: 0, IRPEF: 0, ALTRI: 0, TOTALE: 0, "Codici inclusi": "", Note: ""
+      });
+      const target = grouped.get(key);
+      const code = normalizeArticleCode(movement.articolo_normalizzato || movement.articolo);
+      const cents = RuoliSuspesi.amountToCents(movement.riversato) || 0;
+      const group = Object.keys(ANNUAL_GROUPS).find((name) => ANNUAL_GROUPS[name].has(code)) || "ALTRI";
+      target[group] += cents;
+      target.TOTALE += cents;
+      target._codes = target._codes || new Set();
+      if (code) target._codes.add(code);
+    }
+  }
+  return [...grouped.values()].map((row) => {
+    row["Codici inclusi"] = [...(row._codes || [])].sort().join(" + ");
+    delete row._codes;
+    for (const column of ["ACQUA", "IMU", "TARI", "IRPEF", "ALTRI", "TOTALE"]) row[column] /= 100;
+    return row;
+  }).sort((a, b) => Number(a["Anno riferimento"]) - Number(b["Anno riferimento"])
+    || String(a["Numero sospeso"]).localeCompare(String(b["Numero sospeso"]), "it", { numeric: true }));
+}
+
+function buildControls(records, rows, imuRows, multeRows, annualRows = [], allSuspesi = []) {
   const totalDetail = roundCurrency(rows.reduce((sum, row) => sum + row.riversato, 0));
   const totalImu = roundCurrency(imuRows.reduce((sum, row) => sum + (Number(row.TOTALI) || 0), 0));
   const totalMulte = roundCurrency(multeRows.reduce((sum, row) => sum + (Number(row.TOTALI) || 0), 0));
@@ -144,10 +193,34 @@ function buildControls(records, rows, imuRows, multeRows) {
     ? "DA VERIFICARE"
     : Math.abs(difference) < 0.01 ? "OK" : "ERRORE";
 
+  const matched = records.filter((record) => ["AUTO_CERTA", "MANUALE"].includes(record.match?.status) && !record.match?.reused);
+  const manual = records.filter((record) => record.match?.status === "MANUALE").length;
+  const missing = records.filter((record) => record.match?.status === "NON_TROVATA").length;
+  const ambiguous = records.filter((record) => record.match?.status === "AMBIGUA").length;
+  const reused = records.filter((record) => record.match?.reused).length;
+  const usedIds = new Set(matched.map((record) => record.match.sospesoId));
+  const annualCents = annualRows.reduce((sum, row) => sum + (RuoliSuspesi.amountToCents(row.TOTALE) || 0), 0);
+  const pdfCents = records.reduce((sum, record) => sum + (RuoliSuspesi.amountToCents(record.total_riversato) || 0), 0);
+  const parsedMovementsValid = records.every((record) => Array.isArray(record.rows) && record.rows.length > 0);
+  const matchingValid = records.length > 0 && parsedMovementsValid
+    && matched.length === records.length && !missing && !ambiguous && !reused;
+  const annualValid = annualCents === pdfCents;
+  const accountingValid = status === "OK" && RuoliSuspesi.amountToCents(difference) === 0 && unmappedRows.length === 0;
+  const exportAllowed = matchingValid && annualValid && accountingValid;
+  const finalStatus = exportAllowed ? status : "BLOCCATO";
   return {
-    status,
+    status: finalStatus,
     summary: [
       { Controllo: "Numero PDF inclusi", Valore: records.length, Note: "" },
+      { Controllo: "PDF selezionati", Valore: records.length, Note: "" },
+      { Controllo: "PDF abbinati", Valore: matched.length, Note: "" },
+      { Controllo: "Abbinamenti manuali", Valore: manual, Note: "" },
+      { Controllo: "Sospesi non trovati", Valore: missing, Note: "" },
+      { Controllo: "Abbinamenti ambigui", Valore: ambiguous, Note: "" },
+      { Controllo: "Sospesi riutilizzati", Valore: reused, Note: "" },
+      { Controllo: "Sospesi importati ma non utilizzati", Valore: allSuspesi.filter((item) => !usedIds.has(item.id)).length, Note: "" },
+      { Controllo: "Totale riepilogo annuale", Valore: annualCents / 100, Note: "" },
+      { Controllo: "Confronto totale annuale / PDF selezionati", Valore: (annualCents - pdfCents) / 100, Note: annualValid ? "OK" : "NON QUADRATO" },
       { Controllo: "Elenco PDF inclusi", Valore: records.map((record) => record.source_file_name).join("; "), Note: "" },
       { Controllo: "Numero righe movimento estratte", Valore: rows.length, Note: "" },
       { Controllo: "Numero prospetti per ruolo trovati", Valore: prospetti.length, Note: prospetti.join("; ") },
@@ -160,23 +233,27 @@ function buildControls(records, rows, imuRows, multeRows) {
       { Controllo: "Differenza tra totale dettaglio e totale fogli principali", Valore: difference, Note: "" },
       { Controllo: "Codici articolo non mappati", Valore: unmappedCodes.join("; "), Note: "" },
       { Controllo: "Prospetti per ruolo trovati", Valore: prospetti.join("; "), Note: "" },
-      { Controllo: "Esito finale", Valore: status, Note: status === "OK" ? "" : "Controllare codici non mappati o differenze." }
+      { Controllo: "Esito finale", Valore: finalStatus, Note: exportAllowed ? "" : "Risolvere abbinamenti e quadratura prima dell'export." }
     ],
     totalDetail,
     totalImu,
     totalMulte,
     difference,
-    unmappedCodes
+    unmappedCodes, matched: matched.length, manual, missing, ambiguous, reused,
+    unused: allSuspesi.filter((item) => !usedIds.has(item.id)).length,
+    annualTotal: annualCents / 100, annualDifference: (annualCents - pdfCents) / 100,
+    exportAllowed
   };
 }
 
-function buildWorkbookData(records) {
+function buildWorkbookData(records, allSuspesi = []) {
   const detailRows = records.flatMap((record) => record.rows || []);
   const imuRows = buildImuRifiutiRows(detailRows);
   const multeRows = buildMulteRows(detailRows);
   const reversaliRows = buildReversaliRows(detailRows);
   const prospettiRows = buildProspettiRows(detailRows);
-  const controls = buildControls(records, detailRows, imuRows, multeRows);
+  const annualRows = buildAnnualSummary(records);
+  const controls = buildControls(records, detailRows, imuRows, multeRows, annualRows, allSuspesi);
 
   return {
     records,
@@ -185,6 +262,7 @@ function buildWorkbookData(records) {
     multeRows,
     reversaliRows,
     prospettiRows,
+    annualRows,
     controls
   };
 }
@@ -218,4 +296,6 @@ window.buildMulteRows = buildMulteRows;
 window.buildReversaliRows = buildReversaliRows;
 window.buildProspettiRows = buildProspettiRows;
 window.buildControls = buildControls;
+window.buildAnnualSummary = buildAnnualSummary;
+window.ANNUAL_COLUMNS = ANNUAL_COLUMNS;
 window.buildWorkbookData = buildWorkbookData;

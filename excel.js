@@ -18,9 +18,24 @@ function exportWorkbook(workbookData, settings) {
     "Totale",
     "Note"
   ]);
+  appendObjectSheet(workbook, "Riepilogo annuale", workbookData.annualRows, ANNUAL_COLUMNS, {
+    totalColumns: ["ACQUA", "IMU", "TARI", "IRPEF", "ALTRI", "TOTALE"]
+  });
   appendObjectSheet(workbook, "Controlli", workbookData.controls.summary, ["Controllo", "Valore", "Note"]);
 
   XLSX.writeFile(workbook, buildExportFileName(workbookData.records, settings));
+}
+
+function exportAnnualWorkbook(workbookData, settings) {
+  const workbook = XLSX.utils.book_new();
+  const options = { totalColumns: ["ACQUA", "IMU", "TARI", "IRPEF", "ALTRI", "TOTALE"] };
+  appendObjectSheet(workbook, "Riepilogo annuale", workbookData.annualRows, ANNUAL_COLUMNS, options);
+  const years = [...new Set(workbookData.annualRows.map((row) => row["Anno riferimento"]))].sort();
+  for (const year of years) {
+    appendObjectSheet(workbook, `Anno ${year}`.slice(0, 31), workbookData.annualRows.filter((row) => row["Anno riferimento"] === year), ANNUAL_COLUMNS, options);
+  }
+  const gestionYear = settings?.annoGestione || new Date().getFullYear();
+  XLSX.writeFile(workbook, `RIEPILOGO_ANNUALE_${gestionYear}.xlsx`);
 }
 
 function appendObjectSheet(workbook, sheetName, rows, columns, options = {}) {
@@ -94,6 +109,12 @@ function formatNumericCells(worksheet, data, header) {
     "Altro",
     "Riversato",
     "Totale",
+    "ACQUA",
+    "IMU",
+    "TARI",
+    "IRPEF",
+    "ALTRI",
+    "TOTALE",
     "Valore"
   ]);
 
@@ -162,6 +183,7 @@ function sanitizeCell(value) {
 }
 
 window.exportWorkbook = exportWorkbook;
+window.exportAnnualWorkbook = exportAnnualWorkbook;
 window.copyObjectsForExcel = copyObjectsForExcel;
 window.downloadJsonFile = downloadJsonFile;
 window.buildExportFileName = buildExportFileName;

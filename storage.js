@@ -1,8 +1,11 @@
 const DB_NAME = "ruoli_pdf_excel";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const PDF_STORE = "pdfs";
 const SETTINGS_STORE = "settings";
 const SETTINGS_KEY = "archive";
+const TREASURY_STORE = "treasury";
+const MATCH_STORE = "matches";
+const TREASURY_KEY = "current";
 
 function openRuoliDatabase() {
   return new Promise((resolve, reject) => {
@@ -18,6 +21,8 @@ function openRuoliDatabase() {
       if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
         db.createObjectStore(SETTINGS_STORE, { keyPath: "key" });
       }
+      if (!db.objectStoreNames.contains(TREASURY_STORE)) db.createObjectStore(TREASURY_STORE, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(MATCH_STORE)) db.createObjectStore(MATCH_STORE, { keyPath: "pdfId" });
     };
 
     request.onsuccess = () => resolve(request.result);
@@ -27,8 +32,14 @@ function openRuoliDatabase() {
 
 async function getAllPdfRecords() {
   const db = await openRuoliDatabase();
-  return runStoreRequest(db, PDF_STORE, "readonly", (store) => store.getAll())
-    .then((records) => records.sort((a, b) => String(b.imported_at).localeCompare(String(a.imported_at))));
+  const records = await runStoreRequest(db, PDF_STORE, "readonly", (store) => store.getAll());
+  const enrichedRecords = records.map(enrichPdfRecord);
+
+  if (enrichedRecords.some((record, index) => JSON.stringify(record.rows) !== JSON.stringify(records[index].rows))) {
+    await replaceStoreRecords(db, PDF_STORE, enrichedRecords);
+  }
+
+  return enrichedRecords.sort((a, b) => String(b.imported_at).localeCompare(String(a.imported_at)));
 }
 
 async function savePdfRecord(record) {
@@ -53,6 +64,49 @@ async function clearPdfRecords() {
   return runStoreRequest(db, PDF_STORE, "readwrite", (store) => store.clear());
 }
 
+async function getTreasuryFile() {
+  const db = await openRuoliDatabase();
+  const stored = await runStoreRequest(db, TREASURY_STORE, "readonly", (store) => store.get(TREASURY_KEY));
+  return stored?.value || null;
+}
+
+async function saveTreasuryFile(value) {
+  const db = await openRuoliDatabase();
+  return runStoreRequest(db, TREASURY_STORE, "readwrite", (store) => store.put({ key: TREASURY_KEY, value }));
+}
+
+async function removeTreasuryFile() {
+  const db = await openRuoliDatabase();
+  await runStoreRequest(db, TREASURY_STORE, "readwrite", (store) => store.delete(TREASURY_KEY));
+  return runStoreRequest(db, MATCH_STORE, "readwrite", (store) => store.clear());
+}
+
+async function getMatches() {
+  const db = await openRuoliDatabase();
+  const rows = await runStoreRequest(db, MATCH_STORE, "readonly", (store) => store.getAll());
+  return Object.fromEntries(rows.map((row) => [row.pdfId, row]));
+}
+
+async function saveMatches(matches, manualSelections = {}) {
+  const db = await openRuoliDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(MATCH_STORE, "readwrite");
+    const store = transaction.objectStore(MATCH_STORE);
+    store.clear();
+    for (const [pdfId, match] of Object.entries(matches)) {
+      store.put({ pdfId, ...match, manualSospesoId: manualSelections[pdfId] || "" });
+    }
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error || new Error("Salvataggio abbinamenti annullato"));
+  });
+}
+
+async function exportArchiveAfter(pendingSave, exportFunction = exportArchive) {
+  await pendingSave;
+  return exportFunction();
+}
+
 async function getArchiveSettings() {
   const db = await openRuoliDatabase();
   const stored = await runStoreRequest(db, SETTINGS_STORE, "readonly", (store) => store.get(SETTINGS_KEY));
@@ -65,29 +119,82 @@ async function saveArchiveSettings(settings) {
 }
 
 async function exportArchive() {
-  const [settings, records] = await Promise.all([getArchiveSettings(), getAllPdfRecords()]);
+  const [settings, records, treasury, matches] = await Promise.all([getArchiveSettings(), getAllPdfRecords(), getTreasuryFile(), getMatches()]);
   return {
     exported_at: new Date().toISOString(),
     app: "Ruoli PDF -> Excel",
-    version: 1,
+    version: 2,
     settings,
-    records
+    records,
+    treasury,
+    matches
   };
 }
 
 async function importArchive(payload) {
-  const settings = payload.settings || APP_CONFIG.defaultSettings;
-  const records = Array.isArray(payload.records) ? payload.records : [];
+  const archive = normalizeArchivePayload(payload);
+  const db = await openRuoliDatabase();
+  await replaceArchiveStores(db, archive);
 
-  await saveArchiveSettings(settings);
+  return { imported: archive.records.length, settings: archive.settings };
+}
 
-  for (const record of records) {
-    if (record && record.id) {
-      await runStoreRequest(await openRuoliDatabase(), PDF_STORE, "readwrite", (store) => store.put(record));
-    }
-  }
+function replaceArchiveStores(db, archive) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([PDF_STORE, SETTINGS_STORE, TREASURY_STORE, MATCH_STORE], "readwrite");
+    const pdfStore = transaction.objectStore(PDF_STORE);
+    const settingsStore = transaction.objectStore(SETTINGS_STORE);
+    const treasuryStore = transaction.objectStore(TREASURY_STORE);
+    const matchStore = transaction.objectStore(MATCH_STORE);
 
-  return { imported: records.length, settings };
+    pdfStore.clear();
+    settingsStore.clear();
+    treasuryStore.clear();
+    matchStore.clear();
+
+    archive.records.forEach((record) => pdfStore.put(record));
+    settingsStore.put({ key: SETTINGS_KEY, value: archive.settings });
+    if (archive.treasury) treasuryStore.put({ key: TREASURY_KEY, value: archive.treasury });
+    Object.entries(archive.matches).forEach(([pdfId, match]) => matchStore.put({ ...match, pdfId }));
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error || new Error("Importazione archivio annullata"));
+  });
+}
+
+function enrichPdfRecord(record) {
+  return {
+    ...record,
+    rows: Array.isArray(record?.rows) ? enrichRows(record.rows) : []
+  };
+}
+
+function normalizeArchivePayload(payload = {}) {
+  const matches = payload.matches && typeof payload.matches === "object" && !Array.isArray(payload.matches)
+    ? payload.matches
+    : {};
+
+  return {
+    settings: payload.settings || { ...APP_CONFIG.defaultSettings },
+    records: (Array.isArray(payload.records) ? payload.records : [])
+      .filter((record) => record && record.id)
+      .map(enrichPdfRecord),
+    treasury: payload.treasury || null,
+    matches
+  };
+}
+
+function replaceStoreRecords(db, storeName, records) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, "readwrite");
+    const store = transaction.objectStore(storeName);
+    store.clear();
+    records.forEach((record) => store.put(record));
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error || new Error("Aggiornamento archivio annullato"));
+  });
 }
 
 function runStoreRequest(db, storeName, mode, operation) {
@@ -107,6 +214,15 @@ window.RuoliStorage = {
   savePdfRecord,
   deletePdfRecord,
   clearPdfRecords,
+  getTreasuryFile,
+  saveTreasuryFile,
+  removeTreasuryFile,
+  getMatches,
+  saveMatches,
+  exportArchiveAfter,
+  enrichPdfRecord,
+  normalizeArchivePayload,
+  replaceArchiveStores,
   getArchiveSettings,
   saveArchiveSettings,
   exportArchive,

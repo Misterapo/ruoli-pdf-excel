@@ -1,0 +1,5 @@
+{
+  "name": "ruoli-pdf-excel-static-tests",
+  "private": true,
+  "scripts": { "test": "TZ=Europe/Rome node tests/run-tests.js" }
+}
