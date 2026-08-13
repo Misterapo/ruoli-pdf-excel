@@ -41,6 +41,7 @@
     else if (dot > comma && comma >= 0) text = text.replace(/,/g, "");
     else if (comma >= 0) text = text.replace(",", ".");
     text = text.replace(/[^0-9.-]/g, "");
+    if (!/\d/.test(text)) return null;
     const number = Number(text);
     return Number.isFinite(number) ? Math.round(number * 100) : null;
   }
@@ -98,6 +99,7 @@
     const claimed = new Map();
     // Le scelte manuali valide hanno precedenza; i duplicati restano esplicitamente bloccanti.
     for (const record of records) {
+      if (!Array.isArray(record.rows) || record.rows.length === 0) continue;
       const chosenId = manualSelections[record.id];
       if (!chosenId) continue;
       const item = suspesi.find((entry) => entry.id === chosenId);
@@ -108,6 +110,10 @@
     }
     for (const record of records) {
       if (results[record.id]) continue;
+      if (!Array.isArray(record.rows) || record.rows.length === 0) {
+        results[record.id] = { status: "NON_TROVATA", candidates: [], numero_sospeso: "", invalidParse: true };
+        continue;
+      }
       const cents = amountToCents(record.total_riversato);
       const candidates = suspesi.filter((item) => item.data_effettuazione === normalizeTreasuryDate(record.data_riversamento)
         && item.importo_centesimi === cents && !claimed.has(item.id));

@@ -192,7 +192,9 @@ function buildControls(records, rows, imuRows, multeRows, annualRows = [], allSu
   const usedIds = new Set(matched.map((record) => record.match.sospesoId));
   const annualCents = annualRows.reduce((sum, row) => sum + (RuoliSuspesi.amountToCents(row.TOTALE) || 0), 0);
   const pdfCents = records.reduce((sum, record) => sum + (RuoliSuspesi.amountToCents(record.total_riversato) || 0), 0);
-  const matchingValid = records.length > 0 && matched.length === records.length && !missing && !ambiguous && !reused;
+  const parsedMovementsValid = records.every((record) => Array.isArray(record.rows) && record.rows.length > 0);
+  const matchingValid = records.length > 0 && parsedMovementsValid
+    && matched.length === records.length && !missing && !ambiguous && !reused;
   const annualValid = annualCents === pdfCents;
   const accountingValid = status === "OK" && RuoliSuspesi.amountToCents(difference) === 0 && unmappedRows.length === 0;
   const exportAllowed = matchingValid && annualValid && accountingValid;

@@ -11,6 +11,7 @@ assert.strictEqual(RuoliSuspesi.normalizeTreasuryDate("22/06/2026"), "22/06/2026
 assert.strictEqual(RuoliSuspesi.normalizeTreasuryDate(new Date(2026, 0, 30)), "30/01/2026", "data Excel locale Europe/Rome");
 assert.strictEqual(RuoliSuspesi.amountToCents("€ 1.234,56"), 123456, "centesimi italiani");
 assert.strictEqual(RuoliSuspesi.amountToCents(692.53), 69253, "centesimi numerici");
+assert.strictEqual(RuoliSuspesi.amountToCents("N/D"), null, "importo testuale senza cifre non valido");
 
 const imported = RuoliSuspesi.parseTreasuryRows([
   [" Data-effettuazione ", "IMPORTO (€)", "Riscossione!"],
@@ -33,8 +34,14 @@ const preferredAmountAndNumber = RuoliSuspesi.parseTreasuryRows([
 ]);
 assert.strictEqual(preferredAmountAndNumber.rows[0].importo_centesimi, 69253, "priorità all'intestazione Importo esatta");
 assert.strictEqual(preferredAmountAndNumber.rows[0].numero_sospeso, "203", "priorità all'intestazione Riscossione esatta");
+const invalidTextAmount = RuoliSuspesi.parseTreasuryRows([
+  ["Data effettuazione", "Importo", "Riscossione"],
+  ["30/01/2026", "N/D", "204"]
+]);
+assert.strictEqual(invalidTextAmount.rows.length, 0, "importo senza cifre non importato");
+assert.strictEqual(invalidTextAmount.discarded.length, 1, "importo senza cifre scartato");
 
-const pdf = (id, date, total) => ({ id, data_riversamento: date, total_riversato: total, rows: [] });
+const pdf = (id, date, total) => ({ id, data_riversamento: date, total_riversato: total, rows: [{}] });
 let matches = RuoliSuspesi.calculateMatches([pdf("a", "30/01/2026", 692.53)], imported.rows);
 assert.strictEqual(matches.a.status, "AUTO_CERTA", "corrispondenza certa");
 matches = RuoliSuspesi.calculateMatches([pdf("a", "01/01/2026", 1)], imported.rows);
@@ -46,6 +53,10 @@ matches = RuoliSuspesi.calculateMatches([pdf("a", "30/01/2026", 692.53), pdf("b"
 assert.strictEqual(matches.a.status, "MANUALE", "risoluzione manuale");
 matches = RuoliSuspesi.calculateMatches([pdf("a", "30/01/2026", 692.53), pdf("b", "30/01/2026", 692.53)], imported.rows, { a: imported.rows[0].id, b: imported.rows[0].id });
 assert(matches.a.reused && matches.b.reused, "riutilizzo vietato e segnalato");
+const emptyPdf = { ...pdf("empty", "30/01/2026", 0), rows: [], status: "NESSUNA RIGA" };
+matches = RuoliSuspesi.calculateMatches([emptyPdf], imported.rows, { empty: imported.rows[0].id });
+assert.strictEqual(matches.empty.status, "NON_TROVATA", "PDF senza movimenti non abbinabile manualmente");
+assert.strictEqual(matches.empty.invalidParse, true, "PDF senza movimenti segnalato come non analizzato");
 
 const record = (id, number, date, movements) => ({ id, data_riversamento: date, total_riversato: movements.reduce((s, x) => s + x.riversato, 0), match: { status: "MANUALE", numero_sospeso: number, sospesoId: id }, rows: movements });
 const movement = (year, code, amount) => ({ anno_riferimento: String(year), articolo: code, riversato: amount });
@@ -69,6 +80,11 @@ assert.strictEqual(blocked.controls.annualDifference, 0, "totale annuale coerent
 assert.strictEqual(blocked.controls.matched, 1, "PDF validamente abbinato nel caso non mappato");
 assert.strictEqual(blocked.controls.exportAllowed, false, "codice non mappato blocca export");
 assert.strictEqual(blocked.controls.status, "BLOCCATO", "esito bloccato con codice non mappato");
+
+emptyPdf.match = { status: "MANUALE", numero_sospeso: "203", sospesoId: imported.rows[0].id };
+const emptyBlocked = buildWorkbookData([emptyPdf], imported.rows);
+assert.strictEqual(emptyBlocked.controls.exportAllowed, false, "PDF senza movimenti blocca export anche con match manuale preesistente");
+assert.strictEqual(emptyBlocked.controls.status, "BLOCCATO", "PDF senza movimenti mantiene l'esito bloccato");
 
 (async () => {
   let persisted = {};

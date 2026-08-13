@@ -231,6 +231,9 @@ function textItemsToLines(items) {
 }
 
 function renderAll() {
+  appState.records
+    .filter((record) => !Array.isArray(record.rows) || record.rows.length === 0)
+    .forEach((record) => { delete appState.manualSelections[record.id]; });
   appState.matches = RuoliSuspesi.calculateMatches(appState.records, appState.treasury?.rows || [], appState.manualSelections);
   const matchesToSave = structuredClone(appState.matches);
   const manualToSave = { ...appState.manualSelections };
@@ -282,6 +285,8 @@ function renderArchiveTable() {
     const matchCell = row.querySelector(".sospeso-cell");
     const select = document.createElement("select");
     select.setAttribute("aria-label", `Numero sospeso per ${record.source_file_name}`);
+    const hasParsedMovements = Array.isArray(record.rows) && record.rows.length > 0;
+    select.disabled = !hasParsedMovements;
     select.innerHTML = `<option value="">${record.match?.numero_sospeso ? escapeHtml(record.match.numero_sospeso) : "Seleziona..."}</option>`;
     const claimedElsewhere = new Set(Object.entries(appState.matches).filter(([id, value]) => id !== record.id && value.sospesoId).map(([, value]) => value.sospesoId));
     for (const item of appState.treasury?.rows || []) {
