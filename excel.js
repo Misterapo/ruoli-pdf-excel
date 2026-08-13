@@ -19,7 +19,10 @@ function exportWorkbook(workbookData, settings) {
     "Note"
   ]);
   appendObjectSheet(workbook, "Riepilogo annuale", workbookData.annualRows, ANNUAL_COLUMNS, {
-    totalColumns: ["ACQUA", "IMU", "TARI", "IRPEF", "TOTALE"]
+    totalColumns: [...PRINCIPAL_COLUMNS, ...ACCESSORY_COLUMNS, "TOTALE"]
+  });
+  appendObjectSheet(workbook, "Accessori per sospeso", workbookData.accessoryRows, ACCESSORY_EXPORT_COLUMNS, {
+    totalColumns: [...ACCESSORY_COLUMNS, "TOTALE"]
   });
   appendObjectSheet(workbook, "Controlli", workbookData.controls.summary, ["Controllo", "Valore", "Note"]);
 
@@ -28,11 +31,18 @@ function exportWorkbook(workbookData, settings) {
 
 function exportAnnualWorkbook(workbookData, settings) {
   const workbook = XLSX.utils.book_new();
-  const options = { totalColumns: ["ACQUA", "IMU", "TARI", "IRPEF", "TOTALE"] };
+  const options = { totalColumns: [...PRINCIPAL_COLUMNS, ...ACCESSORY_COLUMNS, "TOTALE"] };
   appendObjectSheet(workbook, "Riepilogo annuale", workbookData.annualRows, ANNUAL_COLUMNS, options);
-  const years = [...new Set(workbookData.annualRows.map((row) => row["Anno riferimento"]))].sort();
+  appendObjectSheet(workbook, "Accessori per sospeso", workbookData.accessoryRows, ACCESSORY_EXPORT_COLUMNS, {
+    totalColumns: [...ACCESSORY_COLUMNS, "TOTALE"]
+  });
+  const principalRows = workbookData.annualRows.filter((row) => row["Tipo riga"] === "TRIBUTI PER ANNO");
+  const yearColumns = ["Numero sospeso", "Data riversamento", "Tipo riga", "Anno riferimento", ...PRINCIPAL_COLUMNS, "TOTALE", "Codici inclusi", "Note"];
+  const years = [...new Set(principalRows.map((row) => row["Anno riferimento"]))].sort();
   for (const year of years) {
-    appendObjectSheet(workbook, `Anno ${year}`.slice(0, 31), workbookData.annualRows.filter((row) => row["Anno riferimento"] === year), ANNUAL_COLUMNS, options);
+    appendObjectSheet(workbook, `Anno ${year}`.slice(0, 31), principalRows.filter((row) => row["Anno riferimento"] === year), yearColumns, {
+      totalColumns: [...PRINCIPAL_COLUMNS, "TOTALE"]
+    });
   }
   const gestionYear = settings?.annoGestione || new Date().getFullYear();
   XLSX.writeFile(workbook, `RIEPILOGO_ANNUALE_${gestionYear}.xlsx`);
@@ -112,7 +122,9 @@ function formatNumericCells(worksheet, data, header) {
     "ACQUA",
     "IMU",
     "TARI",
+    "MULTE",
     "IRPEF",
+    ...ACCESSORY_COLUMNS,
     "TOTALE",
     "Valore"
   ]);

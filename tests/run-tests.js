@@ -62,67 +62,98 @@ const record = (id, number, date, movements) => ({ id, data_riversamento: date, 
 const movement = (year, code, amount) => ({ anno_riferimento: String(year), articolo: code, riversato: amount });
 const annual = buildAnnualSummary([
   record("s2", "1245", "22/06/2026", [movement(2020, "9175", 7.52)]),
-  record("s1", "203", "30/01/2026", [movement(2014, "9000", 10), movement(2011, "9170", 2), movement(2013, "2R60", 3), movement(2012, "0434", 4), movement(2012, "933I", 5), movement(2012, "424", 6)]),
+  record("s1", "203", "30/01/2026", [
+    movement(2014, "9000", 10), movement(2011, "9170", 2), movement(2013, "2R60", 3),
+    movement(2012, "0434", 4), movement(2012, "933I", 5), movement(2012, "424", 6),
+    movement(2020, "5242", 7), movement(2018, "5243", 8), movement(2019, "1C34", 9), movement(2017, "5354", 10)
+  ]),
   record("s3", "25", "20/01/2026", [movement(2022, "2R28", 1)])
 ]);
-assert.deepStrictEqual(annual.map((x) => `${x["Numero sospeso"]}/${x["Anno riferimento"]}`),
-  ["25/2022", "203/2011", "203/2012", "203/2013", "203/2014", "1245/2020"],
-  "ordinamento naturale per sospeso, poi anno crescente con tutte le righe 203 consecutive");
+assert.deepStrictEqual(annual.map((x) => `${x["Numero sospeso"]}/${x["Anno riferimento"] || "ACCESSORI"}`), [
+  "25/2022", "25/ACCESSORI", "203/2011", "203/2012", "203/2013", "203/2014", "203/2020", "203/ACCESSORI", "1245/2020", "1245/ACCESSORI"
+], "ordinamento naturale per sospeso, anno crescente e accessori finali");
 const annual203_2012 = annual.find((row) => row["Numero sospeso"] === "203" && row["Anno riferimento"] === "2012");
-assert.strictEqual(annual203_2012.TARI, 4, "TARI e zero iniziale");
-assert.strictEqual(annual203_2012.IRPEF, 5, "933I in IRPEF");
-assert.strictEqual(annual203_2012.TOTALE, 9, "424 escluso dal totale annuale");
-assert(!Object.prototype.hasOwnProperty.call(annual203_2012, "ALTRI"), "ALTRI assente dalle righe annuali");
-assert(!ANNUAL_COLUMNS.includes("ALTRI"), "ALTRI assente dalle intestazioni annuali");
-for (const row of annual) assert.strictEqual(row.ACQUA + row.IMU + row.TARI + row.IRPEF, row.TOTALE, "totale limitato alle quattro categorie");
+assert.strictEqual(annual203_2012.TARI, 4, "0424/424 escluso dalla TARI annuale");
+assert.strictEqual(annual203_2012.IRPEF, 5, "933I nella colonna IRPEF");
+const annual203_2020 = annual.find((row) => row["Numero sospeso"] === "203" && row["Anno riferimento"] === "2020");
+assert.strictEqual(annual203_2020.MULTE, 7, "5242 nella colonna MULTE dell'anno corretto");
+const accessories203 = annual.find((row) => row["Numero sospeso"] === "203" && row["Tipo riga"] === "ACCESSORI NON RIPARTITI");
+assert.strictEqual(accessories203["Anno riferimento"], "", "anno vuoto per gli accessori");
+assert.strictEqual(accessories203["TARI SANZIONI/INTERESSI"], 6, "424 nelle sanzioni TARI");
+assert.strictEqual(accessories203["MULTE SANZIONI/INTERESSI"], 17, "5243 e 1C34 aggregati senza anno");
+assert.strictEqual(accessories203["MULTE SPESE NOTIFICA"], 10, "5354 aggregato senza anno");
+assert.strictEqual(annual.filter((row) => row["Numero sospeso"] === "203" && row["Tipo riga"] === "ACCESSORI NON RIPARTITI").length, 1, "accessori non duplicati tra anni");
+for (const row of annual.filter((item) => item["Tipo riga"] === "TRIBUTI PER ANNO")) {
+  assert.strictEqual(PRINCIPAL_COLUMNS.reduce((sum, column) => sum + row[column], 0), row.TOTALE, "totale annuale dei soli tributi principali");
+  assert(ACCESSORY_COLUMNS.every((column) => row[column] === 0), "nessun accessorio sulle righe annuali");
+}
+assert(!ACCESSORY_COLUMNS.some((column) => column.includes("IRPEF")), "assenza di colonne accessorie IRPEF");
 
-const categoryCases = buildAnnualSummary([record("categories", "203", "30/01/2026", [
-  ...["2R61", "2R62", "2R63", "2Y98", "2R51", "2Y99", "1C39", "2R95", "2S74", "2Z01", "2SZ01", "1S15"].map((code) => movement(2020, code, 10)),
-  movement(2020, "2R60", 1), movement(2020, "2R28", 2), movement(2020, "2Y54", 3),
-  movement(2020, "0434", 4), movement(2020, "434", 5), movement(2020, "2S79", 6), movement(2020, "933I", 7)
-])])[0];
-assert.strictEqual(categoryCases.IMU, 1, "solo 2R60 incluso in IMU");
-assert.strictEqual(categoryCases.TARI, 20, "soli codici principali inclusi in TARI");
-assert.strictEqual(categoryCases.IRPEF, 7, "933I incluso in IRPEF");
-assert.strictEqual(categoryCases.TOTALE, 28, "accessori esclusi dal totale");
-assert.strictEqual(mapArticleToColumn("933I").voce, "IRPEF", "933I nella mappatura generale");
+const categoryCodes = [
+  ["2R60", 1], ["2R61", 2], ["2R62", 3], ["2S76", 4], ["2R63", 5],
+  ["9000", 6], ["9170", 7], ["9175", 8], ["1C27", 9], ["9001", 10], ["1S15", 11],
+  ["0424", 12], ["9361", 1], ["9362", 2], ["9363", 3], ["933I", 4]
+];
+const categoryRows = buildAnnualSummary([record("categories", "A2", "30/01/2026", categoryCodes.map(([code, amount]) => movement(2020, code, amount)))]);
+const categoryAnnual = categoryRows.find((row) => row["Tipo riga"] === "TRIBUTI PER ANNO");
+const categoryAccessories = categoryRows.find((row) => row["Tipo riga"] === "ACCESSORI NON RIPARTITI");
+assert.strictEqual(categoryAnnual.IMU, 1, "solo codice IMU principale nella colonna annuale");
+assert.strictEqual(categoryAccessories["IMU SANZIONI/INTERESSI"], 9, "accessori IMU nella colonna corretta");
+assert.strictEqual(categoryAccessories["IMU SPESE NOTIFICA"], 5, "notifica IMU nella colonna corretta");
+assert.strictEqual(categoryAnnual.ACQUA, 21, "codici principali ACQUA aggregati");
+assert.strictEqual(categoryAccessories["ACQUA SANZIONI/INTERESSI"], 19, "accessori ACQUA aggregati");
+assert.strictEqual(categoryAccessories["ACQUA SPESE NOTIFICA"], 11, "notifica ACQUA aggregata");
+assert.strictEqual(categoryAnnual.IRPEF, 10, "9361 + 9362 + 9363 + 933I nella stessa colonna");
+assert.strictEqual(categoryAccessories["TARI SANZIONI/INTERESSI"], 12, "0424 classificato come accessorio TARI");
 
-const accountingMovements = enrichRows([movement(2020, "2R28", 20), movement(2020, "424", 6)]);
-const accountingRecord = record("accounting", "203", "30/01/2026", accountingMovements);
+const accessoryOnly = buildAnnualSummary([record("only", "9B", "01/02/2026", [movement(2010, "5354", 2.5)])]);
+assert.strictEqual(accessoryOnly.length, 1, "sospeso con soli accessori produce una riga");
+assert.strictEqual(accessoryOnly[0]["Tipo riga"], "ACCESSORI NON RIPARTITI", "riga unica di tipo accessori");
+
+const accountingMovements = enrichRows(categoryCodes.map(([code, amount]) => movement(2020, code, amount)));
+const accountingRecord = record("accounting", "A2", "30/01/2026", accountingMovements);
 const accountingData = buildWorkbookData([accountingRecord]);
-assert.strictEqual(accountingData.controls.annualRelevantTotal, 20, "quadratura annuale sul solo totale ammesso");
-assert.strictEqual(accountingData.controls.annualTotal, 20, "riepilogo annuale coincide con il rilevante");
-assert.strictEqual(accountingData.controls.annualExcludedTotal, 6, "totale accessori esclusi esposto senza ripartizione annuale");
-assert.strictEqual(accountingData.controls.annualDifference, 0, "differenza annuale in centesimi nulla");
-assert.strictEqual(accountingData.detailRows.reduce((sum, row) => sum + row.riversato, 0), 26, "accessorio conservato nel dettaglio");
-assert.strictEqual(accountingData.imuRows[0]["TARI/TARSU/TARES SANZ/INTERESSI"], 6, "accessorio conservato nella contabilità");
-assert.strictEqual(accountingData.reversaliRows.find((row) => row.Voce === "TARI/TARSU/TARES SANZ/INTERESSI").Totale, 6, "accessorio conservato nelle reversali");
-assert.strictEqual(accountingData.controls.exportAllowed, true, "accessorio mappato escluso dall'annuale non blocca l'export");
-const mismatchedPdfTotal = { ...accountingRecord, total_riversato: 27 };
-assert.strictEqual(buildWorkbookData([mismatchedPdfTotal]).controls.exportAllowed, false, "quadratura contabile completa rispetto al totale PDF ancora obbligatoria");
+assert.strictEqual(accountingData.controls.annualDifference, 0, "quadratura annuale indipendente");
+assert.strictEqual(accountingData.controls.accessoryDifference, 0, "quadratura accessori indipendente");
+assert.strictEqual(accountingData.controls.relevantDifference, 0, "quadratura complessiva rilevante");
+assert.strictEqual(accountingData.accessoryRows.length, 1, "una riga Accessori per sospeso");
+assert.strictEqual(accountingData.controls.exportAllowed, true, "quadrature valide consentono export");
+const mismatchedPdfTotal = { ...accountingRecord, total_riversato: accountingRecord.total_riversato + 1 };
+assert.strictEqual(buildWorkbookData([mismatchedPdfTotal]).controls.exportAllowed, false, "quadratura contabile completa rispetto al totale PDF obbligatoria");
 
 const fakeSheets = [];
+function excelColumn(index) {
+  let value = index + 1;
+  let result = "";
+  while (value) { value -= 1; result = String.fromCharCode(65 + (value % 26)) + result; value = Math.floor(value / 26); }
+  return result;
+}
 global.XLSX = {
   utils: {
     book_new: () => ({ SheetNames: [] }),
     aoa_to_sheet: (data) => {
       const sheet = {};
-      data.forEach((row, r) => row.forEach((value, c) => { sheet[`${String.fromCharCode(65 + c)}${r + 1}`] = { v: value, t: typeof value === "number" ? "n" : "s" }; }));
+      data.forEach((row, r) => row.forEach((value, c) => { sheet[`${excelColumn(c)}${r + 1}`] = { v: value, t: typeof value === "number" ? "n" : "s" }; }));
       return sheet;
     },
-    encode_range: () => "A1:J9",
-    encode_cell: ({ r, c }) => `${String.fromCharCode(65 + c)}${r + 1}`,
+    encode_range: () => "A1:Z99",
+    encode_cell: ({ r, c }) => `${excelColumn(c)}${r + 1}`,
     book_append_sheet: (workbook, sheet, name) => { workbook.SheetNames.push(name); fakeSheets.push({ name, sheet }); }
   },
   writeFile: () => {}
 };
 vm.runInThisContext(fs.readFileSync("excel.js", "utf8"), { filename: "excel.js" });
 exportAnnualWorkbook(accountingData, { annoGestione: 2026 });
-assert.deepStrictEqual(fakeSheets.map(({ name }) => name), ["Riepilogo annuale", "Anno 2020"], "riepilogo generale e foglio annuale prodotti nello stesso ordine");
+assert.deepStrictEqual(fakeSheets.map(({ name }) => name), ["Riepilogo annuale", "Accessori per sospeso", "Anno 2020"], "struttura fogli annuali");
+const yearSheet = fakeSheets.find(({ name }) => name === "Anno 2020").sheet;
+assert(!Object.values(yearSheet).some((cell) => ACCESSORY_COLUMNS.includes(cell.v)), "foglio Anno YYYY privo di colonne accessorie");
+const accessorySheet = fakeSheets.find(({ name }) => name === "Accessori per sospeso").sheet;
+assert.strictEqual(Object.values(accessorySheet).filter((cell) => cell.v === "A2").length, 1, "una sola riga per sospeso nel foglio accessori");
 for (const { sheet } of fakeSheets) {
-  assert(!Object.values(sheet).some((cell) => cell.v === "ALTRI"), "ALTRI assente dagli export annuali");
-  const moneyCell = Object.values(sheet).find((cell) => cell.v === 20 && cell.t === "n");
-  assert(moneyCell && moneyCell.z === "#,##0.00", "importi Excel numerici con due decimali");
+  for (const cell of Object.values(sheet).filter((item) => typeof item.v === "number")) {
+    assert.strictEqual(cell.t, "n", "cella importo Excel numerica");
+    if (cell.z) assert.strictEqual(cell.z, "#,##0.00", "cella importo formattata con due decimali");
+  }
 }
 
 const archived933I = {
