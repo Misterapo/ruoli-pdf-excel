@@ -83,10 +83,22 @@ async function getMatches() {
 
 async function saveMatches(matches, manualSelections = {}) {
   const db = await openRuoliDatabase();
-  await runStoreRequest(db, MATCH_STORE, "readwrite", (store) => store.clear());
-  for (const [pdfId, match] of Object.entries(matches)) {
-    await runStoreRequest(db, MATCH_STORE, "readwrite", (store) => store.put({ pdfId, ...match, manualSospesoId: manualSelections[pdfId] || "" }));
-  }
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(MATCH_STORE, "readwrite");
+    const store = transaction.objectStore(MATCH_STORE);
+    store.clear();
+    for (const [pdfId, match] of Object.entries(matches)) {
+      store.put({ pdfId, ...match, manualSospesoId: manualSelections[pdfId] || "" });
+    }
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error || new Error("Salvataggio abbinamenti annullato"));
+  });
+}
+
+async function exportArchiveAfter(pendingSave, exportFunction = exportArchive) {
+  await pendingSave;
+  return exportFunction();
 }
 
 async function getArchiveSettings() {
@@ -155,6 +167,7 @@ window.RuoliStorage = {
   removeTreasuryFile,
   getMatches,
   saveMatches,
+  exportArchiveAfter,
   getArchiveSettings,
   saveArchiveSettings,
   exportArchive,

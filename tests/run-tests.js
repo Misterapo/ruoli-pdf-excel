@@ -3,10 +3,12 @@ const fs = require("fs");
 const vm = require("vm");
 global.window = global;
 for (const file of ["parser.js", "sospesi.js", "config.js", "mapper.js"]) vm.runInThisContext(fs.readFileSync(file, "utf8"), { filename: file });
+vm.runInThisContext(fs.readFileSync("storage.js", "utf8"), { filename: "storage.js" });
 
 const excelDate = (Date.UTC(2026, 0, 30) - Date.UTC(1899, 11, 30)) / 86400000;
 assert.strictEqual(RuoliSuspesi.normalizeTreasuryDate(excelDate), "30/01/2026", "data Excel");
 assert.strictEqual(RuoliSuspesi.normalizeTreasuryDate("22/06/2026"), "22/06/2026", "data italiana");
+assert.strictEqual(RuoliSuspesi.normalizeTreasuryDate(new Date(2026, 0, 30)), "30/01/2026", "data Excel locale Europe/Rome");
 assert.strictEqual(RuoliSuspesi.amountToCents("€ 1.234,56"), 123456, "centesimi italiani");
 assert.strictEqual(RuoliSuspesi.amountToCents(692.53), 69253, "centesimi numerici");
 
@@ -20,6 +22,11 @@ const imported = RuoliSuspesi.parseTreasuryRows([
 assert.strictEqual(imported.rows.length, 2, "lettura righe valide");
 assert.strictEqual(imported.discarded.length, 1, "righe incomplete scartate");
 assert.strictEqual(imported.duplicates.length, 1, "duplicati segnalati");
+const preferredDate = RuoliSuspesi.parseTreasuryRows([
+  ["Data valuta", "Data effettuazione", "Importo", "Riscossione"],
+  ["29/01/2026", "30/01/2026", "692,53", "203"]
+]);
+assert.strictEqual(preferredDate.rows[0].data_effettuazione, "30/01/2026", "priorità a Data effettuazione");
 
 const pdf = (id, date, total) => ({ id, data_riversamento: date, total_riversato: total, rows: [] });
 let matches = RuoliSuspesi.calculateMatches([pdf("a", "30/01/2026", 692.53)], imported.rows);
@@ -47,4 +54,21 @@ assert.strictEqual(annual[0].TARI, 4, "TARI e zero iniziale");
 assert.strictEqual(annual[0].IRPEF, 5, "933I in IRPEF");
 assert.strictEqual(annual[0].ACQUA + annual[0].IMU + annual[0].TARI + annual[0].IRPEF + annual[0].ALTRI, annual[0].TOTALE, "quadratura categorie");
 assert.strictEqual(mapArticleToColumn("933I").voce, "IRPEF", "933I nella mappatura generale");
-console.log("OK: tutti i test deterministici superati");
+
+const unmappedRecord = record("unmapped", "999", "30/01/2026", [{
+  ...movement(2026, "ZZZZ", 10), articolo_normalizzato: "ZZZZ", categoria_destinazione: "NON MAPPATO", colonna_destinazione: ""
+}]);
+const blocked = buildWorkbookData([unmappedRecord]);
+assert.strictEqual(blocked.controls.annualDifference, 0, "totale annuale coerente nel caso non mappato");
+assert.strictEqual(blocked.controls.matched, 1, "PDF validamente abbinato nel caso non mappato");
+assert.strictEqual(blocked.controls.exportAllowed, false, "codice non mappato blocca export");
+assert.strictEqual(blocked.controls.status, "BLOCCATO", "esito bloccato con codice non mappato");
+
+(async () => {
+  let persisted = {};
+  const latest = { pdf1: { status: "MANUALE", sospesoId: "s1", numero_sospeso: "203", manualSospesoId: "s1" } };
+  const pendingSave = Promise.resolve().then(() => { persisted = structuredClone(latest); });
+  const payload = await RuoliStorage.exportArchiveAfter(pendingSave, async () => ({ matches: persisted }));
+  assert.strictEqual(payload.matches.pdf1.manualSospesoId, "s1", "export immediato include ultima scelta manuale");
+  console.log("OK: tutti i test deterministici superati");
+})().catch((error) => { console.error(error); process.exitCode = 1; });

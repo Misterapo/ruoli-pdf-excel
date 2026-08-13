@@ -15,7 +15,8 @@
 
   function normalizeTreasuryDate(value) {
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
-      return italianDateParts(value.getUTCDate(), value.getUTCMonth() + 1, value.getUTCFullYear());
+      // SheetJS con cellDates:true crea Date nel fuso locale: preservare la data civile del foglio.
+      return italianDateParts(value.getDate(), value.getMonth() + 1, value.getFullYear());
     }
     if (typeof value === "number" && Number.isFinite(value)) {
       // Excel (sistema 1900): il giorno fittizio 29/02/1900 e' gia compensato dall'epoch.
@@ -49,10 +50,23 @@
     return normalized.findIndex((header) => candidates.some((candidate) => header === candidate || header.includes(candidate)));
   }
 
+  function findPreferredDateColumn(headers) {
+    const normalized = headers.map(normalizeHeader);
+    const exact = normalized.indexOf("data effettuazione");
+    if (exact !== -1) return exact;
+
+    const approvedAliases = ["data operazione", "data di effettuazione", "data dell operazione"];
+    const alias = normalized.findIndex((header) => approvedAliases.includes(header));
+    if (alias !== -1) return alias;
+
+    // Il generico "data" e' deliberatamente l'ultima scelta, dopo le intestazioni specifiche.
+    return normalized.indexOf("data");
+  }
+
   function parseTreasuryRows(matrix, fileName = "") {
     if (!Array.isArray(matrix) || !matrix.length) return { fileName, rows: [], discarded: [], duplicates: [] };
     const headers = matrix[0];
-    const dateIndex = findColumn(headers, ["data effettuazione", "data operazione", "data"]);
+    const dateIndex = findPreferredDateColumn(headers);
     const amountIndex = findColumn(headers, ["importo"]);
     const numberIndex = findColumn(headers, ["riscossione", "numero riscossione", "numero sospeso", "sospeso"]);
     if ([dateIndex, amountIndex, numberIndex].includes(-1)) throw new Error("Intestazioni obbligatorie non trovate: data effettuazione, importo, riscossione.");

@@ -194,7 +194,8 @@ function buildControls(records, rows, imuRows, multeRows, annualRows = [], allSu
   const pdfCents = records.reduce((sum, record) => sum + (RuoliSuspesi.amountToCents(record.total_riversato) || 0), 0);
   const matchingValid = records.length > 0 && matched.length === records.length && !missing && !ambiguous && !reused;
   const annualValid = annualCents === pdfCents;
-  const exportAllowed = matchingValid && annualValid;
+  const accountingValid = status === "OK" && RuoliSuspesi.amountToCents(difference) === 0 && unmappedRows.length === 0;
+  const exportAllowed = matchingValid && annualValid && accountingValid;
   const finalStatus = exportAllowed ? status : "BLOCCATO";
   return {
     status: finalStatus,

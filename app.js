@@ -396,7 +396,7 @@ function setExportButtons(enabled) {
 }
 
 async function handleExportArchive() {
-  const payload = await RuoliStorage.exportArchive();
+  const payload = await RuoliStorage.exportArchiveAfter(matchSaveQueue);
   downloadJsonFile(payload, `archivio_ruoli_${new Date().toISOString().slice(0, 10)}.json`);
   setStatus("Archivio esportato in JSON.");
 }
