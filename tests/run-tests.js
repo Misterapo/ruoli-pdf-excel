@@ -85,6 +85,24 @@ const enrichedArchiveRecord = RuoliStorage.enrichPdfRecord(archived933I);
 assert.strictEqual(enrichedArchiveRecord.rows[0].categoria_destinazione, "IMU - RIFIUTI", "record PDF archiviato riarricchito con mappatura corrente");
 assert.strictEqual(enrichedArchiveRecord.rows[0].colonna_destinazione, "IRPEF", "933I archiviato riclassificato come IRPEF");
 
+const repeatedlyEnriched = RuoliStorage.enrichPdfRecord({
+  id: "still-unmapped",
+  rows: [{ articolo: "ZZZZ", note: "Nota operatore; Codice articolo non mappato; Altra nota; Codice articolo non mappato" }]
+});
+const enrichedAgain = RuoliStorage.enrichPdfRecord(repeatedlyEnriched);
+assert.strictEqual(
+  enrichedAgain.rows[0].note,
+  "Nota operatore; Altra nota; Codice articolo non mappato",
+  "riarricchimenti ripetuti mantengono le altre note e una sola diagnosi generata"
+);
+
+const migrated933I = RuoliStorage.enrichPdfRecord({
+  id: "migrated-933i",
+  rows: [{ articolo: "933I", note: "Nota operatore; Codice articolo non mappato; Altra nota" }]
+});
+assert.strictEqual(migrated933I.rows[0].colonna_destinazione, "IRPEF", "933I archiviato migrato a IRPEF");
+assert.strictEqual(migrated933I.rows[0].note, "Nota operatore; Altra nota", "933I migrato perde solo la diagnosi non più valida");
+
 const normalizedV1 = RuoliStorage.normalizeArchivePayload({ version: 1, records: [archived933I] });
 assert.strictEqual(normalizedV1.records.length, 1, "record versione 1 conservati nell'importazione sostitutiva");
 assert.strictEqual(normalizedV1.records[0].rows[0].colonna_destinazione, "IRPEF", "record versione 1 riarricchito");

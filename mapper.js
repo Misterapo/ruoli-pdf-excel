@@ -20,6 +20,7 @@ function mapArticleToColumn(articleCode) {
 function enrichRows(rows) {
   return rows.map((row) => {
     const mapping = mapArticleToColumn(row.articolo_normalizzato || row.articolo);
+    const note = removeGeneratedUnmappedNote(row.note);
 
     if (!mapping) {
       return {
@@ -27,7 +28,7 @@ function enrichRows(rows) {
         articolo_normalizzato: normalizeArticleCode(row.articolo),
         categoria_destinazione: "NON MAPPATO",
         colonna_destinazione: "",
-        note: appendNote(row.note, "Codice articolo non mappato")
+        note: appendNote(note, "Codice articolo non mappato")
       };
     }
 
@@ -36,9 +37,17 @@ function enrichRows(rows) {
       articolo_normalizzato: normalizeArticleCode(row.articolo),
       categoria_destinazione: mapping.categoria_destinazione,
       colonna_destinazione: mapping.colonna_destinazione,
-      note: mapping.nota ? appendNote(row.note, mapping.nota) : row.note
+      note: mapping.nota ? appendNote(note, mapping.nota) : note
     };
   });
+}
+
+function removeGeneratedUnmappedNote(currentNote) {
+  return String(currentNote || "")
+    .split(";")
+    .map((note) => note.trim())
+    .filter((note) => note && note !== "Codice articolo non mappato")
+    .join("; ");
 }
 
 function aggregateRows(rows, category, columns) {
